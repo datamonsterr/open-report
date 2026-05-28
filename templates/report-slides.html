@@ -1,0 +1,192 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<meta name="generator" content="open-report">
+<title>{{TITLE}}</title>
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/reveal.js@5.1.0/dist/reveal.min.css">
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/reveal.js@5.1.0/dist/theme/black.min.css">
+<style>
+  :root {
+    --r-heading-font: 'Segoe UI', system-ui, sans-serif;
+    --r-main-font: 'Segoe UI', system-ui, sans-serif;
+    --r-code-font: 'JetBrains Mono', monospace;
+    --r-heading-color: #e2e8f0;
+    --r-main-color: #cbd5e1;
+    --r-link-color: #60a5fa;
+    --r-link-color-dark: #3b82f6;
+    --r-background-color: #0f172a;
+    --r-block-margin: 16px;
+    --r-heading-margin: 0 0 16px 0;
+    --r-heading-text-transform: none;
+    --r-heading-font-weight: 700;
+  }
+
+  {{LOGO}}
+
+  .reveal .slides section {
+    text-align: left;
+    padding: 2rem 3rem;
+  }
+
+  .reveal h1 { font-size: 2.4em; color: #f1f5f9; }
+  .reveal h2 { font-size: 1.8em; color: #e2e8f0; }
+  .reveal h3 { font-size: 1.4em; color: #cbd5e1; }
+
+  .reveal .slide-title {
+    text-align: center;
+    display: flex !important;
+    flex-direction: column;
+    justify-content: center;
+  }
+
+  .reveal .slide-title h1 {
+    font-size: 3em;
+    margin-bottom: 0.3em;
+  }
+
+  .reveal .slide-title .subtitle {
+    font-size: 1.2em;
+    color: var(--r-link-color);
+  }
+
+  .reveal .slide-title .meta {
+    font-size: 0.7em;
+    color: #64748b;
+    margin-top: 2em;
+  }
+
+  .reveal table {
+    font-size: 0.7em;
+    margin: 1em auto;
+    border-collapse: collapse;
+    width: 100%;
+  }
+
+  .reveal th, .reveal td {
+    border: 1px solid #334155;
+    padding: 0.4em 0.8em;
+    text-align: left;
+  }
+
+  .reveal th {
+    background: #1e293b;
+    color: #e2e8f0;
+  }
+
+  .reveal pre {
+    font-size: 0.55em;
+    box-shadow: none;
+    background: #1e293b;
+    border-radius: 8px;
+  }
+
+  .reveal pre code {
+    padding: 1em;
+  }
+
+  .reveal img {
+    max-height: 65vh;
+    margin: 0 auto;
+  }
+
+  .reveal figure {
+    margin: 0.5em 0;
+  }
+
+  .reveal figcaption {
+    font-size: 0.5em;
+    color: #64748b;
+    margin-top: 0.5em;
+  }
+
+  .reveal blockquote {
+    background: rgba(59,130,246,0.1);
+    border-left: 4px solid #3b82f6;
+    padding: 0.5em 1em;
+    margin: 1em 0;
+    border-radius: 0 4px 4px 0;
+  }
+
+  .reveal .two-col {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 1.5rem;
+  }
+
+  .header-bar {
+    position: fixed;
+    top: 0;
+    left: 0;
+    right: 0;
+    padding: 8px 24px;
+    font-size: 0.5em;
+    color: #475569;
+    display: flex;
+    justify-content: space-between;
+    z-index: 100;
+    background: rgba(15,23,42,0.9);
+    border-bottom: 1px solid #1e293b;
+  }
+
+  .footer-bar {
+    position: fixed;
+    bottom: 0;
+    left: 0;
+    right: 0;
+    padding: 8px 24px;
+    font-size: 0.5em;
+    color: #475569;
+    display: flex;
+    justify-content: space-between;
+    z-index: 100;
+    background: rgba(15,23,42,0.9);
+    border-top: 1px solid #1e293b;
+  }
+
+  {{CSS_EXTRA}}
+</style>
+</head>
+<body>
+
+<div class="header-bar">
+  <span>{{HEADER_CONTENT}}</span>
+  <span>{{TITLE}}</span>
+</div>
+
+<div class="footer-bar">
+  <span>{{FOOTER_CONTENT}}</span>
+  <span>{{PAGE_NUMBERS}}</span>
+</div>
+
+<div class="reveal">
+  <div class="slides">
+
+    <!-- Title Slide -->
+    <section class="slide-title">
+      <h1>{{TITLE}}</h1>
+      <p class="subtitle">{{AUTHOR}}</p>
+      <p class="meta">{{DATE}}</p>
+    </section>
+
+    {{TABLE_OF_CONTENTS}}
+
+    {{CONTENT}}
+  </div>
+</div>
+
+<script src="https://cdn.jsdelivr.net/npm/reveal.js@5.1.0/dist/reveal.min.js"></script>
+<script>
+  Reveal.initialize({
+    hash: true,
+    slideNumber: 'c/t',
+    center: false,
+    transition: 'slide',
+    width: 1280,
+    height: 720,
+    margin: 0.1,
+  });
+</script>
+</body>
+</html>

@@ -1,0 +1,37 @@
+sequenceDiagram
+  actor C as Customer
+  participant W as WebApp
+  participant O as OrderService
+  participant I as InventoryService
+  participant P as PaymentService
+  participant G as PaymentGateway
+  participant N as NotificationService
+  participant D as Database
+
+  C->>W: Click "Place Order"
+  W->>O: POST /orders (cartId, addressId, shippingMethod)
+  O->>I: checkInventory(cartItems)
+  I-->>O: all items available
+
+  O->>P: processPayment(orderTotal, paymentToken, idempotencyKey)
+  P->>G: POST /authorize (amount, currency, token)
+  G-->>P: authorized (transactionId)
+  P-->>O: payment authorized
+
+  O->>D: INSERT order (status="Pending Fulfillment")
+  D-->>O: orderId = ORD-12345
+
+  O->>I: reserveInventory(orderId, items)
+  I-->>O: inventory reserved
+
+  O->>N: sendConfirmationEmail(userId, orderId)
+  N-->>O: email queued
+
+  O-->>W: order confirmation
+  W-->>C: "Order #ORD-12345 confirmed"
+
+  alt Payment Declined
+    P-->>O: payment declined (reason)
+    O-->>W: decline reason
+    W-->>C: "Payment declined: insufficient funds"
+  end

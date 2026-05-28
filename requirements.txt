@@ -1,0 +1,11 @@
+# open-report Python dependencies
+# Core
+markdown>=3.6
+# Diagrams
+diagrams>=0.23.4
+# Charts
+matplotlib>=3.8.0
+seaborn>=0.13.0
+numpy>=1.26.0
+# Utilities
+pillow>=10.0.0

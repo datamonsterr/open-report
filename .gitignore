@@ -1,0 +1,29 @@
+.venv/
+__pycache__/
+*.pyc
+*.pyo
+*.egg-info/
+dist/
+.DS_Store
+node_modules/
+
+# Generated reports (keep source content)
+output/report.html
+
+# Generated diagrams (keep .mmd and .puml source files)
+output/diagrams/*.svg
+output/diagrams/*.png
+output/diagrams/architecture-diagram
+
+# Generated charts (keep chart configs if any)
+output/charts/*.svg
+output/charts/*.png
+
+# Generated SRS diagrams
+output/srs/diagrams/*.svg
+output/srs/diagrams/*.png
+
+# Secrets
+.mise.local.toml
+.env
+.env.*

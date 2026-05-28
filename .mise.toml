@@ -1,0 +1,28 @@
+[env]
+_.python.venv = { path = ".venv", create = true }
+OPENREPORT_OUTPUT_DIR = "output"
+OPENREPORT_TEMPLATE_DIR = "templates"
+OPENREPORT_DEFAULT_REPORT_TYPE = "a4"
+OPENREPORT_DEFAULT_AUTHOR = "Engineering Team"
+
+[tools]
+python = "3.12"
+
+[settings]
+experimental = true
+
+[tasks.generate]
+description = "Generate HTML report from markdown content"
+run = "python scripts/generate_report.py --title \"${OPENREPORT_TITLE:-Technical Report}\" --type \"${OPENREPORT_REPORT_TYPE:-a4}\" --author \"${OPENREPORT_AUTHOR:-Engineering Team}\" --toc"
+
+[tasks.test]
+description = "Run report validation checks"
+run = "python scripts/generate_report.py --validate-only"
+
+[tasks.sample]
+description = "Generate sample diagrams and charts for demo"
+run = "python output/example_diagrams.py"
+
+[tasks.install-deps]
+description = "Install Python dependencies"
+run = "pip install -r requirements.txt"

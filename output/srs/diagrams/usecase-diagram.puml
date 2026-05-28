@@ -1,0 +1,41 @@
+@startuml
+left to right direction
+skinparam packageStyle rectangle
+
+actor "Customer" as cust
+actor "Guest" as guest
+actor "Admin" as admin
+actor "Payment Gateway" as psp <<secondary>>
+actor "Notification Service" as notify <<secondary>>
+
+rectangle "E-Commerce Platform" {
+  usecase "UC-AUTH-01\nAuthenticate User" as UC1
+  usecase "UC-AUTH-02\nRegister Account" as UC2
+  usecase "UC-CART-01\nAdd Item to Cart" as UC3
+  usecase "UC-CART-02\nView Cart" as UC4
+  usecase "UC-ORDER-01\nPlace Order" as UC5
+  usecase "UC-ORDER-02\nTrack Order" as UC6
+  usecase "UC-PAY-01\nProcess Payment" as UC7
+  usecase "UC-PAY-02\nApply Voucher" as UC8
+}
+
+cust --> UC1
+cust --> UC3
+cust --> UC4
+cust --> UC5
+cust --> UC6
+
+guest --> UC2
+guest --> UC3
+guest --> UC4
+
+admin --> UC5
+admin --> UC6
+
+psp --> UC7
+
+UC5 ..> UC1 : <<include>>
+UC5 ..> UC7 : <<include>>
+UC8 ..> UC5 : <<extend>>
+
+@enduml
