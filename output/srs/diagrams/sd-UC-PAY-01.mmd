@@ -1,0 +1,32 @@
+sequenceDiagram
+  actor C as Customer
+  participant W as WebApp
+  participant P as PaymentService
+  participant G as PaymentGateway
+  participant D as Database
+
+  C->>W: Checkout (select payment method)
+  W->>P: POST /payments/authorize (orderId, amount, token)
+  P->>D: checkIdempotency(orderId, idempotencyKey)
+  D-->>P: no existing transaction
+
+  P->>G: POST /authorize (amount, currency, paymentToken)
+  G-->>P: authorized (transactionId, authCode)
+  P->>D: INSERT transaction (transactionId, amount, status="Authorized", timestamp)
+
+  P-->>W: payment authorized (transactionId)
+  W-->>C: "Payment confirmed"
+
+  alt Payment Declined
+    G-->>P: declined (reason)
+    P->>D: INSERT transaction (status="Declined", reason)
+    P-->>W: payment declined
+    W-->>C: "Payment declined: [reason]"
+  else Gateway Timeout
+    G-->>P: timeout (10s)
+    P->>P: retryOnce (same idempotencyKey)
+    G-->>P: timeout (10s)
+    P->>D: INSERT transaction (status="Pending")
+    P-->>W: payment pending
+    W-->>C: "Payment processing. Check order status later."
+  end

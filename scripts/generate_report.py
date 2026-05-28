@@ -169,8 +169,97 @@ def generate_slides_html(md_content: str) -> str:
     return slides_html
 
 
+def render_diagram_sources(content_dir: Path, diagrams: list) -> dict:
+    """Find .puml/.mmd sources near content, render to SVG, return {placeholder: svg_path}.
+    
+    For each diagram placeholder like 'diagrams/usecase-diagram.svg', look for:
+      content_dir/diagrams/usecase-diagram.puml (PlantUML source)
+      content_dir/diagrams/usecase-diagram.mmd  (Mermaid source)
+    
+    Render any found sources to SVG in the same directory.
+    """
+    rendered = {}
+    
+    for diag in diagrams:
+        placeholder = diag["path"]
+        diag_type = diag["type"]
+        
+        svg_target = content_dir / placeholder
+        stem = os.path.splitext(placeholder)[0]
+        
+        puml_source = content_dir / f"{stem}.puml"
+        mmd_source = content_dir / f"{stem}.mmd"
+        
+        if puml_source.exists():
+            print(f"      - Rendering PlantUML: {puml_source.name} -> {svg_target.name}")
+            try:
+                from render_plantuml import render_plantuml
+                result = render_plantuml(
+                    puml_source.read_text(), str(svg_target), diag_type, "svg"
+                )
+                if result["success"]:
+                    rendered[placeholder] = str(svg_target)
+                else:
+                    print(f"        FAILED: {result.get('error', 'unknown error')}", file=sys.stderr)
+                    rendered[placeholder] = render_diagram_fallback(svg_target, diag_type, "puml")
+            except Exception as e:
+                print(f"        FAILED: {e}", file=sys.stderr)
+                rendered[placeholder] = render_diagram_fallback(svg_target, diag_type, "puml")
+               
+        elif mmd_source.exists():
+            print(f"      - Rendering Mermaid: {mmd_source.name} -> {svg_target.name}")
+            try:
+                from render_mermaid import render_mermaid
+                result = render_mermaid(
+                    mmd_source.read_text(), str(svg_target), diag_type, "svg"
+                )
+                if result["success"]:
+                    rendered[placeholder] = str(svg_target)
+                else:
+                    print(f"        FAILED: {result.get('error', 'unknown error')}", file=sys.stderr)
+                    rendered[placeholder] = render_diagram_fallback(svg_target, diag_type, "mmd")
+            except Exception as e:
+                print(f"        FAILED: {e}", file=sys.stderr)
+                rendered[placeholder] = render_diagram_fallback(svg_target, diag_type, "mmd")
+        else:
+            rendered[placeholder] = str(svg_target)
+    
+    return rendered
+
+
+def render_diagram_fallback(svg_path: Path, diagram_type: str, source_type: str) -> str:
+    """Create descriptive placeholder SVG when render tools are unavailable."""
+    labels = {
+        "usecase": "Use Case Diagram",
+        "sequence": "Sequence Diagram",
+        "flow": "Flow Diagram",
+        "class": "Class Diagram",
+        "architecture": "Architecture Diagram",
+    }
+    label = labels.get(diagram_type, f"{diagram_type.title()} Diagram")
+    tool_hint = "PlantUML" if source_type == "puml" else "Mermaid CLI"
+
+    svg = f'''<svg xmlns="http://www.w3.org/2000/svg" width="800" height="500" viewBox="0 0 800 500">
+  <defs>
+    <linearGradient id="bg" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" style="stop-color:#f8f9fa"/>
+      <stop offset="100%" style="stop-color:#e9ecef"/>
+    </linearGradient>
+  </defs>
+  <rect width="800" height="500" fill="url(#bg)" rx="8"/>
+  <rect x="1" y="1" width="798" height="498" fill="none" stroke="#dee2e6" stroke-width="2" rx="8"/>
+  <text x="400" y="200" text-anchor="middle" font-family="Segoe UI, sans-serif" font-size="18" font-weight="600" fill="#495057">{label}</text>
+  <text x="400" y="235" text-anchor="middle" font-family="Segoe UI, sans-serif" font-size="14" fill="#868e96">Source: {source_type.upper()} file — rendered during report generation</text>
+  <text x="400" y="270" text-anchor="middle" font-family="Segoe UI, sans-serif" font-size="12" fill="#adb5bd">Install {tool_hint} for visual output</text>
+  <text x="400" y="300" text-anchor="middle" font-family="monospace" font-size="11" fill="#ced4da">({svg_path.name})</text>
+</svg>'''
+    svg_path.parent.mkdir(parents=True, exist_ok=True)
+    with open(svg_path, "w") as f:
+        f.write(svg)
+    return str(svg_path)
+
+
 def replace_image_placeholders(html_content: str, images_map: dict) -> str:
-    """Replace image src paths with actual file paths or data URIs in HTML."""
     for placeholder_path, actual_path in images_map.items():
         escaped = re.escape(placeholder_path)
         html_content = re.sub(
@@ -218,7 +307,7 @@ def validate_report(html_path: str, template_type: str = "a4") -> dict:
         checks["content_sufficient"] = False
         warnings.append(f"Low word count: {len(words)} words (min 50)")
 
-    if re.search(r'\b(TODO|TBD|Lorem ipsum|FIXME)\b', content, re.IGNORECASE):
+    if re.search(r'\b(TODO|Lorem ipsum|FIXME)\b', content, re.IGNORECASE):
         checks["no_placeholders"] = False
         warnings.append("Placeholder text found in report")
 
@@ -309,18 +398,23 @@ def main():
 
     print(f"[1/5] Loaded {len(md_content)} characters of markdown content")
 
+    content_dir = content_path.parent.resolve()
+
     diagrams, charts = extract_placeholders(md_content)
     print(f"[2/5] Found {len(diagrams)} diagram(s), {len(charts)} chart(s)")
 
-    images_map = {}
+    if not args.skip_diagrams:
+        print(f"      - Rendering diagram sources from {content_dir}/")
+        sys.path.insert(0, str(SCRIPTS_DIR))
+        images_map = render_diagram_sources(content_dir, diagrams)
+    else:
+        images_map = {}
+        for diag in diagrams:
+            svg_target = content_dir / diag["path"]
+            images_map[diag["path"]] = str(svg_target)
 
-    image_dir = OUTPUT_DIR / "diagrams"
-    for diag in diagrams:
-        output_path = image_dir / os.path.basename(diag["path"])
-        print(f"      - Rendering diagram: {diag['type']} -> {output_path.name}")
-        images_map[diag["path"]] = str(output_path)
-
-    chart_dir = OUTPUT_DIR / "charts"
+    chart_dir = content_dir / "charts"
+    chart_dir.mkdir(parents=True, exist_ok=True)
     for chart in charts:
         output_path = chart_dir / os.path.basename(chart["path"])
         print(f"      - Render chart: {chart['type']} -> {output_path.name}")

@@ -1,0 +1,43 @@
+sequenceDiagram
+  actor C as Customer
+  participant W as WebApp
+  participant V as VoucherService
+  participant P as PricingService
+  participant D as Database
+
+  C->>W: Enter voucher code "SAVE20"
+  W->>V: POST /vouchers/validate (code="SAVE20", orderId, customerId)
+  V->>D: SELECT voucher WHERE code="SAVE20" AND expiryDate > NOW()
+  D-->>V: voucher record (type="percentage", value=20, minOrder=50.00)
+
+  V->>V: validateRules(voucher, orderSubtotal, customerUsage)
+  V->>D: SELECT COUNT(*) FROM voucher_usage WHERE voucherId=X AND customerId=Y
+  D-->>V: usageCount=0 (single-use, not yet used)
+
+  V->>P: calculateDiscount(subtotal=275.00, voucher={type: "percentage", value: 20})
+  P-->>V: discount=55.00, newTotal=241.25
+
+  V->>D: INSERT voucher_usage (voucherId, customerId, orderId, timestamp)
+  V-->>W: valid (discount=55.00, newTotal=241.25)
+  W-->>C: "Voucher applied! You saved $55.00"
+
+  alt Invalid Code
+    V->>D: SELECT voucher WHERE code="XXXXX"
+    D-->>V: no record
+    V-->>W: invalid (reason="Code not recognized")
+    W-->>C: "Invalid voucher code. Please try again."
+  else Voucher Expired
+    V->>D: SELECT voucher WHERE code="EXPIRED20" AND expiryDate > NOW()
+    D-->>V: no record (expired)
+    V-->>W: invalid (reason="Voucher has expired")
+    W-->>C: "This voucher has expired."
+  else Minimum Order Not Met
+    V->>V: validateRules (minOrder=50.00, subtotal=35.00)
+    V-->>W: invalid (reason="Minimum order of $50.00 required")
+    W-->>C: "Minimum order of $50.00 required to use this voucher."
+  else Already Used
+    V->>D: SELECT COUNT(*) FROM voucher_usage WHERE voucherId=X AND customerId=Y
+    D-->>V: usageCount=1 (exceeded limit)
+    V-->>W: invalid (reason="Voucher already used")
+    W-->>C: "You've already used this voucher on a previous order."
+  end
