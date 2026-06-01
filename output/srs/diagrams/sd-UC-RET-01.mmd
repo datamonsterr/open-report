@@ -1,0 +1,49 @@
+sequenceDiagram
+    actor User as Researcher
+    participant FE as React Frontend
+    participant API as FastAPI Backend
+    participant Celery as Celery Worker
+    participant Seg as Segmentation
+    participant Feat as Feature Extractor
+    participant Qdrant as Qdrant DB
+    participant PG as PostgreSQL
+
+    User->>FE: Upload image + strain + media
+    FE->>API: POST /api/v1/images/upload (FormData)
+    API->>PG: Create image record
+    API-->>FE: { image_id, job_id, status: pending_segmentation }
+
+    API->>Celery: Dispatch segmentation task
+    Celery->>Seg: Run KMeans/Contour segmentation
+    Seg-->>Celery: [{ bbox, crop_path }]
+    Celery->>PG: Create segment records
+    Celery->>PG: Update job status
+
+    FE->>API: Poll GET /api/v1/jobs/{job_id}
+    API-->>FE: { status: segments_ready }
+
+    FE->>API: GET /api/v1/images/{id}/segments
+    API-->>FE: [{ segment_id, bbox, crop_url }]
+
+    FE->>User: Display bbox overlay on image
+    User->>FE: Edit bboxes (resize, move, add, delete)
+    FE->>API: PATCH /api/v1/images/{id}/segments
+    API->>PG: Update segment records
+
+    User->>FE: Click "Process Retrieval"
+    FE->>API: POST /api/v1/retrieval/query
+    API->>Celery: Dispatch retrieval task
+    API-->>FE: { job_id, status: processing }
+
+    Celery->>Feat: Extract features per segment
+    Feat-->>Celery: Feature vectors (1280-dim)
+    Celery->>Qdrant: KNN search (k=5, cosine)
+    Qdrant-->>Celery: Top-k neighbors
+    Celery->>Celery: Apply env strategy filter
+    Celery->>Celery: Aggregate species scores
+    Celery->>PG: Save retrieval results
+
+    FE->>API: GET /api/v1/retrieval/jobs/{id}/results
+    API->>PG: Fetch ranked results + neighbor details
+    API-->>FE: { rankings: [{ rank, species, score, neighbors }] }
+    FE->>User: Display ranked results table

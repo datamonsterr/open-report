@@ -1,0 +1,26 @@
+flowchart TD
+    A["User Uploads Image"] --> B["Save to Dataset/" ]
+    B --> C["Celery: Run Segmentation\n(KMeans or Contour)"]
+    C --> D["Return BBoxes +\nSegment Crops"]
+    D --> E["User Reviews &\nEdits BBoxes"]
+    E --> F{"User\nConfirms?"}
+    F -->|Yes| G["Celery: Extract Features\n(EfficientNetB1 fine-tuned)"]
+    F -->|No/Edit| E
+    G --> H["Query Qdrant\n(k=5, Cosine Distance)"]
+    H --> I["Apply Environment\nStrategy Filter\n(E1/E2/E3/E4)"]
+    I --> J["Filter Siblings\n(same parent_item_id)"]
+    J --> K["Aggregate Across\nSegments & Media"]
+    K --> L["Rank Species by\nWeighted Score"]
+    L --> M["Return Top-5\nSpecies Results"]
+    M --> N["User Views\nRanked Results"]
+    N --> O{"Is Data\nOwner?"}
+    O -->|Yes| P["Option: Assign\nKnown Species Label"]
+    O -->|No| Q["Option: Submit\nFeedback"]
+    P --> R["Index Segment\ninto Qdrant"]
+    Q --> S["Data Owner\nReviews Feedback"]
+    S --> T{"Accept?"}
+    T -->|Yes| U["Update Species\nin Database"]
+    T -->|No/Defer| S
+    U --> V["Flag for\nRe-indexing"]
+    V --> W["Trigger Retraining\n(Data Owner)"]
+    W --> X["Celery: Re-extract\nFeatures + Upsert"]

@@ -1,0 +1,62 @@
+sequenceDiagram
+    actor Owner as Data Owner
+    participant FE as Frontend
+    participant API as Backend
+    participant Celery as Celery Worker
+    participant Vast as Vast.ai GPU
+    participant FS as File Storage
+    participant Qdrant as Qdrant
+
+    Owner->>FE: Open Training Dashboard
+    FE->>API: GET /api/v1/training/status
+    API-->>FE: { model_version, last_trained, f1_score, pending_changes }
+
+    Owner->>FE: Click "Retrain"
+    FE->>API: POST /api/v1/training/trigger { type: reindex }
+    API->>PG: Create training_job (status: pending)
+
+    Note over API: Pre-flight check:
+    Note over API: N new strains, M archived,
+    Note over API: P feedback accepted
+
+    API-->>FE: { job_id, estimated_duration }
+
+    API->>Celery: Dispatch re-index task
+
+    loop Per Active Segment
+        Celery->>Feat: Extract features (all extractors)
+        Feat-->>Celery: Named vectors
+        Celery->>Qdrant: Upsert point (named vectors + payload)
+        Celery->>PG: Update qdrant_index_state
+    end
+
+    loop Per Archived Segment
+        Celery->>Qdrant: Delete point
+        Celery->>PG: Update qdrant_index_state (is_active=FALSE)
+    end
+
+    loop Per Segment (progress updates)
+        Celery->>PG: Update training_jobs.progress
+        FE->>API: Poll GET /api/v1/training/jobs/{id}
+        API-->>FE: { progress: { stage, current, total } }
+        FE->>Owner: Show progress bar
+    end
+
+    Celery->>PG: Update training_jobs (status: completed)
+
+    Note over Owner: Optional: fine-tune model
+    Owner->>FE: Click "Fine-tune Model"
+    FE->>API: POST /api/v1/training/trigger { type: finetune }
+    API->>Celery: Dispatch fine-tune task
+    Celery->>Vast: Spin up GPU instance
+    Vast->>FS: Download training dataset
+    Vast->>Vast: Train EfficientNetB1
+    Vast->>FS: Save model weights (.pth)
+    Vast->>Celery: Signal completion
+
+    Owner->>FE: Review F1 score (0.92 vs 0.89)
+    Owner->>FE: Click "Deploy Model"
+    FE->>API: POST /api/v1/training/jobs/{id}/deploy
+    API->>Celery: Re-index all with new model
+    Celery->>Qdrant: Upsert with new features
+    API->>PG: Update model_version, is_deployed=TRUE

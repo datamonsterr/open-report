@@ -1,0 +1,110 @@
+@startuml
+skinparam packageStyle rectangle
+skinparam componentStyle rectangle
+
+cloud "Researcher / Data Owner" {
+  [Browser\n(React SPA)]
+}
+
+package "Frontend (React 19 + Vite)" {
+  [Upload Page] as FEUpload
+  [Results Page] as FEResults
+  [Database Browser] as FEDB
+  [Feedback Inbox] as FEFB
+  [Training Dashboard] as FETrain
+  [Admin Panel] as FEAdmin
+}
+
+package "API Gateway / Backend (FastAPI)" {
+  [Auth Router\n/api/v1/auth] as APIAuth
+  [Images Router\n/api/v1/images] as APIImg
+  [Retrieval Router\n/api/v1/retrieval] as APIRet
+  [Species Router\n/api/v1/species] as APISpecies
+  [Feedback Router\n/api/v1/feedback] as APIFB
+  [Training Router\n/api/v1/training] as APITrain
+  [Dashboard Router\n/api/v1/dashboard] as APIDash
+  [Admin Router\n/api/v1/admin] as APIAdmin
+}
+
+package "Services Layer" {
+  [Segmentation Service] as SvcSeg
+  [Feature Extraction\nService] as SvcFeat
+  [Retrieval Service] as SvcRet
+  [Qdrant Client] as SvcQdrant
+  [Training Service] as SvcTrain
+  [Storage Service] as SvcStorage
+  [Notification Service] as SvcNotify
+}
+
+package "Task Queue (Celery + Redis)" {
+  [Segmentation Worker] as CelerySeg
+  [Feature Extraction\nWorker] as CeleryFeat
+  [Training Worker] as CeleryTrain
+  [Batch Worker] as CeleryBatch
+}
+
+database "PostgreSQL 16" as PG {
+  [users]
+  [species]
+  [strains]
+  [images]
+  [segments]
+  [feedback]
+  [training_jobs]
+  [audit_log]
+}
+
+database "Qdrant\n(Vector DB)" as Qdrant {
+  [myco_fungi_features\n_full_finetuned]
+}
+
+storage "File Storage\n(Dataset/ + weights/)" as FS {
+  [curated_primary]
+  [incoming_low_quality]
+  [prepared]
+  [Model Weights]
+}
+
+cloud "Vast.ai GPU\n(Training)" as VastGPU
+
+Browser --> FEUpload
+Browser --> FEResults
+Browser --> FEDB
+Browser --> FEFB
+Browser --> FETrain
+Browser --> FEAdmin
+
+FEUpload --> APIAuth
+FEResults --> APIImg
+FEDB --> APISpecies
+FEFB --> APIFB
+FETrain --> APITrain
+FEAdmin --> APIAdmin
+
+APIAuth --> SvcSeg
+APIImg --> SvcSeg
+APIRet --> SvcRet
+APISpecies --> SvcQdrant
+APIFB --> SvcNotify
+APITrain --> SvcTrain
+APIAdmin --> PG
+
+SvcSeg --> CelerySeg
+SvcFeat --> CeleryFeat
+SvcTrain --> CeleryTrain
+
+CelerySeg --> FS
+CeleryFeat --> Qdrant
+CeleryTrain --> VastGPU
+CeleryBatch --> FS
+
+SvcRet --> SvcQdrant
+SvcRet --> SvcFeat
+SvcQdrant --> Qdrant
+
+SvcStorage --> FS
+
+VastGPU --> FS : downloads dataset
+VastGPU --> FS : saves weights
+
+@enduml

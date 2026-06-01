@@ -6,6 +6,7 @@ OPENREPORT_DEFAULT_REPORT_TYPE = "a4"
 OPENREPORT_DEFAULT_AUTHOR = "Engineering Team"
 
 [tools]
+java = "openjdk"
 python = "3.12"
 
 [settings]

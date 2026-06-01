@@ -1,0 +1,185 @@
+@startuml
+hide empty methods
+hide empty attributes
+
+entity "users" as users {
+  * id : UUID <<PK>>
+  --
+  email : VARCHAR(255) UNIQUE
+  password_hash : VARCHAR(255)
+  name : VARCHAR(255)
+  role : VARCHAR(20) = 'user'
+  is_active : BOOLEAN = TRUE
+  created_at : TIMESTAMPTZ
+  updated_at : TIMESTAMPTZ
+}
+
+entity "refresh_tokens" as rtokens {
+  * id : UUID <<PK>>
+  --
+  * user_id : UUID <<FK>>
+  token_hash : VARCHAR(255)
+  expires_at : TIMESTAMPTZ
+  created_at : TIMESTAMPTZ
+}
+
+entity "species" as species {
+  * id : UUID <<PK>>
+  --
+  name : VARCHAR(255) UNIQUE
+  description : TEXT
+  is_archived : BOOLEAN = FALSE
+  created_at : TIMESTAMPTZ
+  updated_at : TIMESTAMPTZ
+  archived_at : TIMESTAMPTZ
+}
+
+entity "strains" as strains {
+  * id : UUID <<PK>>
+  --
+  * species_id : UUID <<FK>>
+  name : VARCHAR(255)
+  source : VARCHAR(50)
+  is_archived : BOOLEAN = FALSE
+  created_at : TIMESTAMPTZ
+  updated_at : TIMESTAMPTZ
+}
+
+entity "images" as images {
+  * id : UUID <<PK>>
+  --
+  * strain_id : UUID <<FK>>
+  media : VARCHAR(20)
+  angle : VARCHAR(10)
+  file_path : VARCHAR(500)
+  prepared_path : VARCHAR(500)
+  pipeline_path : VARCHAR(500)
+  is_archived : BOOLEAN = FALSE
+  created_at : TIMESTAMPTZ
+}
+
+entity "segments" as segments {
+  * id : UUID <<PK>>
+  --
+  * image_id : UUID <<FK>>
+  segment_index : INTEGER
+  crop_path : VARCHAR(500)
+  bbox_x : INTEGER
+  bbox_y : INTEGER
+  bbox_w : INTEGER
+  bbox_h : INTEGER
+  segmentation_method : VARCHAR(20)
+  qdrant_point_id : UUID
+  is_archived : BOOLEAN = FALSE
+  created_at : TIMESTAMPTZ
+}
+
+entity "retrieval_jobs" as retrieval_jobs {
+  * id : UUID <<PK>>
+  --
+  * user_id : UUID <<FK>>
+  job_type : VARCHAR(20)
+  status : VARCHAR(20) = 'pending'
+  config : JSONB
+  input_summary : JSONB
+  error_message : TEXT
+  started_at : TIMESTAMPTZ
+  completed_at : TIMESTAMPTZ
+  created_at : TIMESTAMPTZ
+}
+
+entity "retrieval_results" as retrieval_results {
+  * id : UUID <<PK>>
+  --
+  * job_id : UUID <<FK>>
+  strain_name : VARCHAR(255)
+  rank : INTEGER
+  species_name : VARCHAR(255)
+  score : FLOAT
+}
+
+entity "retrieval_neighbors" as retrieval_neighbors {
+  * id : UUID <<PK>>
+  --
+  * result_id : UUID <<FK>>
+  neighbor_strain : VARCHAR(255)
+  neighbor_species : VARCHAR(255)
+  similarity : FLOAT
+  media : VARCHAR(20)
+  segment_index : INTEGER
+}
+
+entity "feedback" as feedback {
+  * id : UUID <<PK>>
+  --
+  * submitter_id : UUID <<FK>>
+  reviewer_id : UUID <<FK>>
+  source : VARCHAR(20)
+  query_strain : VARCHAR(255)
+  result_id : UUID <<FK>>
+  image_id : UUID <<FK>>
+  predicted_species : VARCHAR(255)
+  suggested_species : VARCHAR(255)
+  description : TEXT
+  status : VARCHAR(20) = 'pending'
+  review_note : TEXT
+  submitted_at : TIMESTAMPTZ
+  reviewed_at : TIMESTAMPTZ
+}
+
+entity "training_jobs" as training_jobs {
+  * id : UUID <<PK>>
+  --
+  * triggered_by : UUID <<FK>>
+  job_type : VARCHAR(20)
+  status : VARCHAR(20) = 'pending'
+  progress : JSONB
+  changes_since_last : JSONB
+  model_version : VARCHAR(50)
+  is_deployed : BOOLEAN = FALSE
+  started_at : TIMESTAMPTZ
+  completed_at : TIMESTAMPTZ
+  created_at : TIMESTAMPTZ
+}
+
+entity "audit_log" as audit_log {
+  * id : BIGSERIAL <<PK>>
+  --
+  * user_id : UUID <<FK>>
+  action : VARCHAR(50)
+  entity_type : VARCHAR(50)
+  entity_id : UUID
+  changes : JSONB
+  ip_address : INET
+  created_at : TIMESTAMPTZ
+}
+
+entity "qdrant_index_state" as qdrant_state {
+  * id : UUID <<PK>>
+  --
+  * segment_id : UUID <<FK>>
+  qdrant_point_id : UUID
+  collection_name : VARCHAR(100)
+  indexed_at : TIMESTAMPTZ
+  last_updated : TIMESTAMPTZ
+  is_active : BOOLEAN = TRUE
+}
+
+users ||--o{ rtokens
+users ||--o{ retrieval_jobs
+users ||--o{ feedback : submitter
+users ||--o{ training_jobs
+users ||--o{ audit_log
+
+species ||--o{ strains
+strains ||--o{ images
+images ||--o{ segments
+segments ||--o| qdrant_state
+
+retrieval_jobs ||--o{ retrieval_results
+retrieval_results ||--o{ retrieval_neighbors
+
+feedback }o--|| retrieval_results
+feedback }o--|| images : "database_review"
+
+@enduml
