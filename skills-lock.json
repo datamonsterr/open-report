@@ -1,0 +1,23 @@
+{
+  "version": 1,
+  "skills": {
+    "database-schema-design": {
+      "source": "mohitagw15856/pm-claude-skills",
+      "sourceType": "github",
+      "skillPath": "skills/database-schema-design/SKILL.md",
+      "computedHash": "66191f2f7c7ee3e458d7f3f08796bc3ae11ca65358eeae82cd68fdbc68eb5808"
+    },
+    "frontend-slides": {
+      "source": "affaan-m/ECC",
+      "sourceType": "github",
+      "skillPath": "skills/frontend-slides/SKILL.md",
+      "computedHash": "2ae9014ecb81e90111de53838d903a4ff216900e74e67ceb884b984ac9519260"
+    },
+    "python-visuals": {
+      "source": "data-goblin/power-bi-agentic-development",
+      "sourceType": "github",
+      "skillPath": "plugins/reports/skills/python-visuals/SKILL.md",
+      "computedHash": "c093818341d6361f26dd3f55357ac392a0494f8c582285e36e0de343a5907982"
+    }
+  }
+}

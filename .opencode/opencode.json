@@ -1,15 +1,66 @@
 {
-  "name": "open-report",
-  "description": "Generate professional HTML reports with diagrams, charts, and codebase analysis",
-  "version": "1.0.0",
-  "commands": ["generate-report"],
-  "subagents": ["diagram-renderer", "tester", "report-renderer", "srs-writer"],
-  "dependencies": {
-    "python": ">=3.10",
-    "system": ["mermaid-cli", "plantuml", "graphviz"]
+  "$schema": "https://opencode.ai/config.json",
+  "model": "9router/BigBrain",
+  "small_model": "9router/MiniBrain",
+  "agent": {
+    "build": {
+      "model": "9router/BigBrain"
+    },
+    "general": {
+      "model": "9router/BigBrain"
+    },
+    "explore": {
+      "model": "9router/MidBrain"
+    },
+    "explorer": {
+      "model": "9router/MidBrain"
+    },
+    "project-analyzer": {
+      "model": "9router/BigBrain"
+    },
+    "repo-cloner": {
+      "model": "9router/MiniBrain"
+    },
+    "srs-writer": {
+      "model": "9router/SuperBrain"
+    },
+    "diagram-renderer": {
+      "model": "9router/MidBrain"
+    },
+    "report-renderer": {
+      "model": "9router/MidBrain"
+    },
+    "tester": {
+      "model": "9router/FreeBrain"
+    }
   },
-  "output": {
-    "dir": "output",
-    "formats": ["html"]
+  "skills": {
+    "paths": [
+      ".opencode/skills"
+    ]
+  },
+  "instructions": [
+    "rules/*.md"
+  ],
+  "permission": {
+    "read": "allow",
+    "glob": "allow",
+    "grep": "allow",
+    "task": "allow",
+    "question": "allow",
+    "webfetch": "allow",
+    "bash": {
+      "*": "ask",
+      "git clone *": "allow",
+      "git -C *": "allow",
+      "python scripts/*": "allow",
+      "python -m pytest*": "allow",
+      "mise run *": "allow"
+    },
+    "edit": "ask",
+    "external_directory": {
+      "*": "ask",
+      "/home/dat/dev/open-report/tmp/**": "allow"
+    }
   }
 }

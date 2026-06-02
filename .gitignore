@@ -7,9 +7,6 @@ dist/
 .DS_Store
 node_modules/
 
-# Generated reports (keep source content)
-output/report.html
-
 # Generated diagrams (keep .mmd and .puml source files)
 output/diagrams/*.svg
 output/diagrams/*.png
@@ -27,3 +24,6 @@ output/srs/diagrams/*.png
 .mise.local.toml
 .env
 .env.*
+
+output
+tmp

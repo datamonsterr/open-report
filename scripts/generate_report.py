@@ -27,8 +27,8 @@ from pathlib import Path
 
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
 SCRIPTS_DIR = PROJECT_ROOT / "scripts"
-TEMPLATES_DIR = PROJECT_ROOT / "templates"
-OUTPUT_DIR = PROJECT_ROOT / "output"
+TEMPLATES_DIR = PROJECT_ROOT / os.environ.get("OPENREPORT_TEMPLATE_DIR", "report/templates")
+OUTPUT_DIR = PROJECT_ROOT / os.environ.get("OPENREPORT_OUTPUT_DIR", "output")
 
 
 def ensure_output_dirs():

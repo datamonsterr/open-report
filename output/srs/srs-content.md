@@ -1,1697 +1,1161 @@
-# Software Requirements Specification<br/>MycoAI Retrieval System
+# Software Requirements Specification (SRS)
+# MycoAI Fungal Species Identification Platform
 
-**Document ID:** MYCOAI-SRS-2.0
-**Version:** 2.0
-**Status:** Approved
-**Release Date:** 2026-05-29
-
-**Author:** Engineering Team
-**Reviewer:** Product Owner, Technical Lead
-**Approver:** Project Sponsor
-
-**Distribution:** Internal — Confidential
-
----
-
-## Revision History
-
-| Version | Date | Author | Description |
-|---------|------|--------|-------------|
-| 0.1 | 2026-05-15 | Engineering Team | Initial outline and actor identification |
-| 1.0 | 2026-05-19 | MycoAI Project | First release: high-level actors, use cases, functional + nonfunctional requirements (LaTeX) |
-| 2.0 | 2026-05-29 | Engineering Team | Complete rewrite: 25 use case specifications with full flow tables, sequence diagrams, entity model, REST API catalog, technical stack, assumptions log |
-
----
-
-## Table of Contents
-
-1. [Introduction](#1-introduction)
-2. [Overall Description](#2-overall-description)
-3. [Actors](#3-actors)
-4. [System Architecture](#4-system-architecture)
-5. [Use Case Diagram](#5-use-case-diagram)
-6. [Functional Requirements](#6-functional-requirements)
-7. [Use Case Index](#7-use-case-index)
-8. [Use Case Specifications — Authentication](#8-use-case-specifications--authentication)
-9. [Use Case Specifications — Image Input](#9-use-case-specifications--image-input)
-10. [Use Case Specifications — Segmentation](#10-use-case-specifications--segmentation)
-11. [Use Case Specifications — Retrieval](#11-use-case-specifications--retrieval)
-12. [Use Case Specifications — Visualization](#12-use-case-specifications--visualization)
-13. [Use Case Specifications — Data Indexing](#13-use-case-specifications--data-indexing)
-14. [Use Case Specifications — Data Management (CRUD)](#14-use-case-specifications--data-management-crud)
-15. [Use Case Specifications — Feedback Pipeline](#15-use-case-specifications--feedback-pipeline)
-16. [Use Case Specifications — Training](#16-use-case-specifications--training)
-17. [Use Case Specifications — Administration](#17-use-case-specifications--administration)
-18. [Sequence Diagrams](#18-sequence-diagrams)
-19. [Data Requirements](#19-data-requirements)
-20. [External Interface Requirements](#20-external-interface-requirements)
-21. [Non-Functional Requirements](#21-non-functional-requirements)
-22. [Technical Stack](#22-technical-stack)
-23. [Appendices](#23-appendices)
+**Version:** 1.0  
+**Date:** 2026-06-02  
+**Author:** SRS Generator  
+**Status:** Draft  
 
 ---
 
 ## 1. Introduction
 
 ### 1.1 Purpose
-
-This Software Requirements Specification (SRS) defines the complete functional and non-functional requirements for the MycoAI Retrieval System — a web-based platform for fungal species identification using computer vision and vector similarity search. The system enables mycologists and researchers to upload fungal colony images, automatically segment colonies, retrieve likely species from a curated reference database via Qdrant KNN search, and provide feedback to improve classification accuracy over time.
-
-This document serves as the authoritative reference for design, development, and testing activities across the three-component monorepo: experiment pipeline (`fungal-cv-qdrant`), retrieval backend (`mycoai_retrieval_backend`), and scientist-facing frontend (`mycoai_retrieval_frontend`).
+MycoAI is a fungal species identification platform that combines computer vision, vector similarity search, and a scientist-facing web application. Researchers upload Petri dish plate images of fungal colonies; the system segments individual colonies, extracts feature embeddings via deep learning models (ResNet50, EfficientNetB1, ViT), stores them in a Qdrant vector database, and retrieves species matches via k-NN similarity search.
 
 ### 1.2 Scope
+This SRS covers the web application platform comprising:
+- User authentication and authorization (JWT-based, two roles)
+- Image upload pipeline with automated colony segmentation
+- Bounding box editing for segmentation correction
+- k-NN species retrieval from Qdrant vector database with configurable aggregation strategies
+- Species, strain, and image database browsing
+- Scientific feedback submission and review workflow
+- Data management CRUD operations (Data Owner)
+- Model training trigger, monitoring, and deployment (Data Owner)
 
-**In scope:**
-
-- User authentication with role-based authorization (Normal User / Data Owner)
-- Single-image and batch image upload with strain and growth medium metadata
-- AI-powered colony segmentation (KMeans and Contour methods) with manual bounding-box editing and removal
-- Vector-based species retrieval via Qdrant KNN search with configurable parameters: k (1-20), environment strategy (E1-E4), aggregation (weighted/uniform/manual_weighted)
-- Feature extraction via 13 named vectors; default query vector: EfficientNetB1 fine-tuned (1280-dim)
-- Ranked species results with confidence scores, expandable KNN neighbor detail, and interactive force-directed graph visualization (Phase 2)
-- Data Owner workflows: index new data with known species labels, full CRUD on species/strains/images, soft-delete with archive/restore and trash management
-- Feedback pipeline: user reporting of incorrect predictions, Data Owner review (accept/reject/defer), database correction, and Qdrant re-indexing trigger
-- Training observation: manual trigger of re-index, fine-tune, and full retrain with real-time progress tracking, staged deployment, rollback, and A/B evaluation
-- User management: role assignment enforcing at-least-one-Data-Owner invariant
-- Immutable audit logging for all data-modifying operations
-- Batch processing with Celery-based async jobs and client-side polling
-- Vast.ai GPU on-demand integration for training workloads
-- Overview dashboard with species distribution, media distribution, timeline, and learned vs unlearned status charts
-
-**Out of scope:**
-
-- Anonymous/public access (all classification workflows require authentication)
-- Multi-tenant or organizational hierarchy beyond the two-role model
-- Mobile native applications (responsive web only, desktop-first at 1280px+)
-- Integration with external LIMS or laboratory information systems
-- Automated/scheduled retraining (manual trigger only for MVP)
-- Export to PDF or publication formats (CSV only for MVP)
-- Inventory or physical sample tracking
+**Out of scope:** Offline model experimentation (fungal-cv-qdrant repo), multi-agent autonomous research (Autolab), Vast.ai GPU cluster provisioning, dataset synchronization tools.
 
 ### 1.3 Definitions and Acronyms
 
 | Term | Definition |
 |------|-----------|
-| BBox | Bounding box — rectangular region enclosing a detected colony |
-| Colony | Visible fungal growth on a petri dish; the unit of segmentation |
-| Strain | A specific fungal isolate grown on one medium (e.g., "DTO 148-D1") |
-| Species | Taxonomic classification (e.g., *Penicillium commune*) |
-| Medium / Media | Growth substrate from predefined set: MEA, CYA, YES, DG18, OA, CREA, PDA, CMA, SAB, M40Y |
-| Segment | A cropped image of one detected colony from a source plate image |
-| KNN | k-Nearest Neighbors — vector similarity search in Qdrant |
-| Sibling Filtering | Excluding neighbor segments that originate from the same source image |
-| Qdrant | Vector database storing multi-vector feature embeddings with metadata payload |
-| Feature Extractor | Deep learning model converting an image segment into a fixed-dimension vector |
-| Named Vectors | Qdrant capability: multiple embedding vectors per point (one per feature extractor) |
-| KMeans | Segmentation via HSV color clustering (K=3) + spatial clustering |
-| Contour | Segmentation via Canny edge detection + morphological close + circularity filter |
-| Environment Strategy | Filter rule controlling which growth media are included in KNN search (E1-E4) |
-| Aggregation Strategy | Method for combining KNN results into ranked species scores |
-| JWT | JSON Web Token — stateless authentication |
-| Celery | Distributed task queue for async background jobs |
-| Vast.ai | GPU rental marketplace for training workloads |
-| Species Weights | Per-species, per-extractor weighting configuration for ensemble aggregation |
-| PII | Personally Identifiable Information |
-| UC | Use Case |
-| RFC 7807 | Problem Details for HTTP APIs — standard error response format |
-
-### 1.4 References
-
-| Ref | Document | Description |
-|-----|----------|-------------|
-| R1 | IEEE 830-1998 | Recommended Practice for Software Requirements Specifications |
-| R2 | docs/feature_spec/01–08 | Eight ground-truth feature specifications (image-input through roles-and-permissions) |
-| R3 | docs/technical_spec/00–12 | Thirteen technical decision documents (use-case-design through deployment) |
-| R4 | fungal-cv-qdrant | Experiment repository: segmentation, feature extraction, cross-validation, Qdrant indexing |
-| R5 | mycoai_retrieval_backend | FastAPI backend submodule implementing the retrieval product API |
-| R6 | mycoai_retrieval_frontend | React 19 + Vite frontend submodule implementing the scientist UI |
-| R7 | species_weights.json | Per-species feature extractor performance weights for ensemble aggregation |
+| **Strain** | A specific fungal isolate, identified by a strain identifier (e.g., "DTO 148-D1") |
+| **Species** | The taxonomic species classification (e.g., *Penicillium commune*) |
+| **Media** | Growth medium on which the fungus is cultured (e.g., MEA, CYA, YES) |
+| **Segment** | A cropped image region containing a single fungal colony, defined by a bounding box |
+| **Qdrant** | Vector similarity search engine storing feature embeddings |
+| **Embedding** | A fixed-dimensional feature vector extracted from an image via a CNN/Transformer model |
+| **k-NN** | k-Nearest Neighbors search over vector space |
+| **Aggregation** | Voting strategy to combine neighbor results into a species ranking |
+| **JWT** | JSON Web Token for authenticated sessions |
+| **Re-index** | Re-extract features and upsert into Qdrant (lightweight, no model weight change) |
+| **Fine-tune** | Retrain neural network weights (heavy operation) |
+| **Retrain** | Combined fine-tune + re-index pipeline |
 
 ---
 
 ## 2. Overall Description
 
 ### 2.1 Product Perspective
+MycoAI is a greenfield system with three submodules in a monorepo:
+- **mycoai_retrieval_backend:** FastAPI REST API serving all business logic
+- **mycoai_retrieval_frontend:** React 19 SPA for scientist-facing UI
+- **fungal-cv-qdrant:** Research/experimentation code (producer of models and datasets; not imported by product repos)
 
-The MycoAI Retrieval System is a greenfield scientific web application operating within a monorepo that coordinates three git submodules:
+The backend is a modular monolith — single deployable service with domain-grouped routers. External dependencies: PostgreSQL 16, Qdrant (Docker/Cloud), Redis 7 (Celery broker).
 
-| Component | Repository | Role |
-|-----------|-----------|------|
-| Experiment Pipeline | `repos/fungal-cv-qdrant/` | Research code: segmentation, feature extraction, Qdrant indexing, cross-validation. Generates artifacts consumed by product repos. |
-| Retrieval Backend | `repos/mycoai_retrieval_backend/` | FastAPI REST API: retrieval orchestration, data management, feedback, training, auth. |
-| Retrieval Frontend | `repos/mycoai_retrieval_frontend/` | React 19 SPA: scientist UI for upload, results, database, feedback, training dashboards. |
+### 2.2 User Characteristics
 
-Shared runtime artifacts: `Dataset/` (images), `weights/` (checkpoints), `results/` (experiment outputs), `species_weights.json`, `.qdrant_storage/`.
+| Actor | Role | Technical Level | Responsibilities |
+|-------|------|-----------------|------------------|
+| **Researcher** (`user`) | Normal User | Domain scientist, basic web proficiency | Upload images, view retrieval results, submit feedback on predictions |
+| **Data Owner** (`owner`) | Administrator | Domain scientist with curation responsibility | All Researcher actions + CRUD species/strains/images, feedback review, training trigger, user management, audit log |
 
-**Product repos must not import from `fungal-cv-qdrant/`.** Feature extraction and segmentation invoke experiment scripts via subprocess (Celery tasks), with a long-term goal of extracting a shared `mycoai_ml` library.
-
-### 2.2 Product Functions
-
-| Function Category | Use Cases | Primary Actor(s) |
-|------------------|-----------|-----------------|
-| Authentication | UC-AUTH-01, UC-AUTH-02, UC-AUTH-03 | All users |
-| Image Input | UC-IMG-01, UC-IMG-02 | Normal User, Data Owner |
-| Segmentation | UC-SEG-01, UC-SEG-02, UC-SEG-03 | Normal User, Data Owner |
-| Species Retrieval | UC-RET-01 | Normal User, Data Owner |
-| Results Visualization | UC-VIZ-01, UC-VIZ-02 | Normal User, Data Owner |
-| Data Indexing | UC-DATA-01 | Data Owner |
-| Data Management (CRUD) | UC-DATA-02, UC-DATA-03, UC-DATA-04, UC-DATA-05 | Data Owner (write), All (read) |
-| Feedback Pipeline | UC-FB-01, UC-FB-02, UC-FB-03 | Normal User (submit), Data Owner (review) |
-| Training | UC-TRN-01, UC-TRN-02, UC-TRN-03, UC-TRN-04 | Data Owner |
-| Administration | UC-ADM-01, UC-ADM-02 | Data Owner |
-
-### 2.3 User Characteristics
-
-| Role | Technical Level | Frequency | Primary Needs |
-|------|----------------|-----------|---------------|
-| Normal User (Researcher) | Mycologist; basic computer literacy | Weekly–daily | Upload images, identify isolates, review results, report errors |
-| Data Owner | Mycologist + system administration | Daily | Manage database, review feedback, retrain models, manage users |
-
-### 2.4 Constraints
-
-| ID | Constraint |
-|----|-----------|
-| C-01 | Web application, desktop-first (1280px+ target), responsive to 1024px |
-| C-02 | Browser: Chrome 90+, Firefox 90+, Safari 15+, Edge 90+ |
-| C-03 | Image formats: JPEG, PNG, TIFF; minimum 256x256; maximum 50MB |
-| C-04 | Predefined growth media set (10 types, extensible) |
-| C-05 | Two segmentation methods: KMeans (default), Contour |
-| C-06 | Qdrant: single-node, single collection, cosine distance, 13 named vectors |
-| C-07 | KNN: k=5 default, range 1-20 |
-| C-08 | Deployment: Docker Compose on single VM |
-| C-09 | Training: Vast.ai GPU on-demand; manual trigger only |
-| C-10 | All data-modifying operations require JWT authentication |
-
-### 2.5 Assumptions and Dependencies
-
-| ID | Description | Impact if Invalid |
-|----|-------------|-------------------|
-| AS-01 | Qdrant collection pre-populated by fungal-cv-qdrant pipeline | Retrieval returns no results |
-| AS-02 | Model weights (.pth) available at `weights/` | Feature extraction fails |
-| AS-03 | Dataset directory follows canonical hierarchy under `Dataset/` | Upload pipeline fails |
-| AS-04 | Vast.ai GPU instances available on demand | Fine-tune unavailable; re-index only |
-| AS-05 | First registered user auto-assigned Data Owner | No admin exists |
-| AS-06 | Species names unique (case-insensitive) | Retrieval ambiguity |
-| AS-07 | PostgreSQL, Qdrant, Redis running via Docker Compose | Backend unavailable |
-| AS-08 | Users have reliable internet and modern browsers | Degraded experience |
+### 2.3 Constraints
+- **Implementation State:** Backend API structure is complete but most business logic is mock/stub. Auth uses in-memory stores — PostgreSQL integration is scaffolded via Alembic migration but not wired. Frontend pages are shells except Upload page. Celery tasks exist as stubs.
+- **Reimplementation Boundary:** Product repos must reimplement logic locally; must not import from `fungal-cv-qdrant`.
+- **Deployment:** Planned Docker Compose on single VM (<100 concurrent users). No Kubernetes or managed platform yet.
+- **Browser Support:** Modern browsers (Chrome, Firefox, Edge latest 2 versions).
+- **Image Formats:** JPEG, PNG, TIFF (minimum 256×256 px).
 
 ---
 
-## 3. Actors
+## 3. System Features and Use Cases
 
-| Actor | Type | Description |
-|-------|------|-------------|
-| Normal User (Researcher) | Primary | Authenticated researcher. Uploads colony images, segments, retrieves species, views ranked results with confidence scores and neighbor details, submits feedback on incorrect predictions. Cannot modify reference data, trigger training, or manage users. |
-| Data Owner | Primary | Authenticated super-user. All Normal User capabilities plus: indexes new data with known labels, full CRUD on species/strains/images, archive/restore, reviews and accepts/rejects/deferrs feedback, triggers and monitors training, deploys/rolls back models, manages user roles, views audit logs. At least one Data Owner must exist. |
+### 3.1 Actor List
 
----
+| Actor ID | Actor Name | Type | Description |
+|----------|------------|------|-------------|
+| ACT-01 | Researcher | Primary | Authenticated normal user; uploads images, views results, submits feedback |
+| ACT-02 | Data Owner | Primary | Authenticated owner; all Researcher actions plus data management, feedback review, training, admin |
+| ACT-03 | AI Segmentation Service | Secondary | Automated colony detection from plate images (internal system component) |
+| ACT-04 | Retrieval Service | Secondary | Embedding extraction, Qdrant vector search, ranking aggregation (internal system component) |
+| ACT-05 | Celery Worker | Secondary | Async task processor for training, batch operations, segmentation (internal system component) |
 
-## 4. System Architecture
+### 3.2 Use Case Index
 
-![Diagram:architecture](diagrams/architecture-diagram.svg)
+| UC ID | Use Case Name | Primary Actor | Priority |
+|-------|---------------|---------------|----------|
+| UC-AUTH-01 | Register Account | Researcher | High |
+| UC-AUTH-02 | Login | Researcher | High |
+| UC-IMAGE-01 | Upload Image for Identification | Researcher | High |
+| UC-IMAGE-02 | Edit Segmentation | Researcher | Medium |
+| UC-RETRIEVAL-01 | Query Species Identity | Researcher | High |
+| UC-DATA-01 | Browse Database | Researcher | Medium |
+| UC-FEEDBACK-01 | Submit Feedback | Researcher | Medium |
+| UC-FEEDBACK-02 | Review Feedback | Data Owner | Medium |
+| UC-DATA-02 | Manage Species Data | Data Owner | High |
+| UC-TRAINING-01 | Trigger Model Training | Data Owner | Medium |
 
-**Layers:**
+### 3.3 Use Case Diagram
 
-| Layer | Technology | Components |
-|-------|-----------|------------|
-| Presentation | React 19 + Vite SPA | Upload Page, Results Page, Database Browser, Feedback Inbox, Training Dashboard, Admin Panel |
-| API | FastAPI | 8 domain routers (auth, images, retrieval, species, strains, feedback, training, dashboard, admin) |
-| Services | Python async | Segmentation, Feature Extraction, Retrieval, Qdrant Client, Training, Storage, Notification |
-| Background | Celery + Redis | Segmentation Worker, Feature Extraction Worker, Training Worker, Batch Worker |
-| Data | PostgreSQL 16 + Qdrant | 12 relational tables + 1 vector collection (13 named vectors) |
-| Storage | Local filesystem | Dataset/ (images), weights/ (checkpoints), results/ (outputs) |
-| External | Vast.ai GPU | On-demand training infrastructure |
-
----
-
-## 5. Use Case Diagram
-
-![Diagram:usecase](diagrams/usecase-diagram.svg)
-
-**Key relationships:**
-
-- **Upload & Classify** is the primary classification workflow — encompassing image upload, colony segmentation, feature extraction, Qdrant KNN search, and results visualization
-- **Index Reference Data** extends Upload & Classify — reuses upload/segmentation UI with known-species label assignment
-- **Submit & Review Feedback** extends Manage Database — corrections flow into data updates
-- **Index Reference Data** triggers Manage Training — new reference data drives retraining
+![Use Case Diagram](diagrams/usecase-diagram.svg)
 
 ---
 
-## 6. Functional Requirements
-
-This section provides a summary index. Full flow-level specifications follow in sections 8–17.
-
-### 6.1 Authentication
-
-| ID | Requirement |
-|----|------------|
-| FR-AUTH-01 | Register with email, password (≥ 8 chars), name |
-| FR-AUTH-02 | First registered user auto-assigned Data Owner role |
-| FR-AUTH-03 | Login returns JWT access token (1h) + refresh token (30d) |
-| FR-AUTH-04 | Refresh token endpoint: POST `/api/v1/auth/refresh` |
-| FR-AUTH-05 | Logout revokes refresh token |
-| FR-AUTH-06 | Password hashing: bcrypt, 12 rounds |
-| FR-AUTH-07 | Rate limit: 5 login attempts/IP/minute |
-| FR-AUTH-08 | Access token in JS memory; refresh token in httpOnly/Secure/SameSite=Strict cookie |
-
-### 6.2 Image Input
-
-| ID | Requirement |
-|----|------------|
-| FR-IMG-01 | Upload single image with strain ID + growth medium |
-| FR-IMG-02 | Accept JPEG, PNG, TIFF; ≥ 256x256; ≤ 50MB |
-| FR-IMG-03 | Show image preview before processing |
-| FR-IMG-04 | Batch upload via folder structure with `template.json` + per-strain `metadata.csv` |
-| FR-IMG-05 | AI-assisted column mapping for arbitrary CSV structures |
-| FR-IMG-06 | Max colonies: default (model threshold) or integer 1-10 |
-| FR-IMG-07 | Remove individual images from batch (undoable until processing) |
-| FR-IMG-08 | Progress indicator during batch processing |
-| FR-IMG-09 | Downloadable CSV after batch completion |
-
-### 6.3 Segmentation
-
-| ID | Requirement |
-|----|------------|
-| FR-SEG-01 | Auto-segment on upload: 1-3 bboxes + crops |
-| FR-SEG-02 | Two methods: KMeans (default), Contour (configurable) |
-| FR-SEG-03 | Bboxes as draggable/resizable overlays on source image |
-| FR-SEG-04 | Add bbox (drag empty area), delete bbox (Delete key / remove button) |
-| FR-SEG-05 | Segment removal with undo; enforce ≥ 1 segment |
-| FR-SEG-06 | Batch review grid: approve/reject per image, jump-to-flagged |
-| FR-SEG-07 | Re-crop on bbox edit; re-extract features before retrieval |
-| FR-SEG-08 | Output: prepared.jpg, bbox visualization, pipeline visualization, segment crops |
-
-### 6.4 Retrieval
-
-| ID | Requirement |
-|----|------------|
-| FR-RET-01 | Default extractor: EfficientNetB1 fine-tuned (1280-dim) |
-| FR-RET-02 | Qdrant KNN: k=5 default, range 1-20 |
-| FR-RET-03 | Environment strategies: E1 (same medium, default), E2 (all), E3 (specific), E4 (exclude) |
-| FR-RET-04 | Sibling filtering: exclude neighbors from same parent image |
-| FR-RET-05 | Aggregation: weighted (default), uni, manual_weighted |
-| FR-RET-06 | Multi-segment + multi-media aggregation per strain |
-| FR-RET-07 | Return top-5 species with scores, neighbor details, thumbnail URLs |
-| FR-RET-08 | Single-image query ≤ 5 seconds |
-| FR-RET-09 | Handle: missing features (skip), zero results (empty), extractor failure (retry 3x), partial batch (return successful) |
-| FR-RET-10 | Cache: per (segment_id, feature_type, k, env_strategy), 1h TTL, invalidate on re-index |
-| FR-RET-11 | Async-first: Celery job with polling |
-
-### 6.5 Results Visualization
-
-| ID | Requirement |
-|----|------------|
-| FR-VIZ-01 | Ranked table: rank, species, score, color-coded bar (green/yellow/red) |
-| FR-VIZ-02 | Expandable per-species KNN neighbor detail: per-media groups, scrollable thumbnails, lightbox |
-| FR-VIZ-03 | Sortable by rank, score, species name |
-| FR-VIZ-04 | CSV export |
-| FR-VIZ-05 | Phase 2: force-directed KNN graph, configurable k/strategy, species colors, pan/zoom/hover |
-
-### 6.6 Data Management
-
-| ID | Requirement |
-|----|------------|
-| FR-DATA-01 | Data Owner uploads + indexes images with known species label (extends UC-RET-01) |
-| FR-DATA-02 | Create species: unique name, optional description, reference images |
-| FR-DATA-03 | Rename species: atomic bulk relabel + Qdrant re-index trigger |
-| FR-DATA-04 | Filterable database browser: strain, species, media, date, source |
-| FR-DATA-05 | Dashboard: total images, strains, species, media types; species pie, media bar, timeline, learned vs unlearned |
-| FR-DATA-06 | Soft-delete (archive): excluded from Qdrant and training; metadata preserved |
-| FR-DATA-07 | Archive warning: "N strains. Models must be retrained." |
-| FR-DATA-08 | Trash: view archived, restore (re-index), permanent delete, empty trash with confirmation |
-| FR-DATA-09 | Audit log all CRUD operations |
-
-### 6.7 Feedback Pipeline
-
-| ID | Requirement |
-|----|------------|
-| FR-FB-01 | Submit feedback from results view (source=query_result) or database (source=database_review) |
-| FR-FB-02 | Feedback form: predicted species (auto), correct species (dropdown), required description, optional image |
-| FR-FB-03 | Data Owner inbox: pending list, newest first, submitter/query/correction details |
-| FR-FB-04 | Actions: accept, reject (required note), defer; bulk checkbox selection |
-| FR-FB-05 | On accept: update strain species, mark Qdrant points inactive, queue re-index, notify submitter, audit log |
-| FR-FB-06 | Feedback statistics: total, acceptance rate, review time, most misclassified species |
-| FR-FB-07 | In-app bell notification + optional email on status change |
-
-### 6.8 Training
-
-| ID | Requirement |
-|----|------------|
-| FR-TRN-01 | Dashboard: model version, last trained, training set size, F1 score |
-| FR-TRN-02 | Training history table: job ID, type, start/end, duration, status, changes |
-| FR-TRN-03 | Three types: re-index (CPU), fine-tune (GPU), full retrain (GPU + re-index) |
-| FR-TRN-04 | Pre-flight summary before trigger: N added, M archived, P feedback, estimated time |
-| FR-TRN-05 | One training job at a time; show progress if active |
-| FR-TRN-06 | Real-time progress: stage, epoch X/Y, loss/accuracy, ETA |
-| FR-TRN-07 | Graceful cancel at epoch end |
-| FR-TRN-08 | Notification on completion/failure |
-| FR-TRN-09 | Staged deployment: review metrics → manual Deploy |
-| FR-TRN-10 | Rollback: re-index with previous model weights |
-| FR-TRN-11 | A/B evaluation: old vs new F1, per-species, confusion matrix |
-
-### 6.9 Administration
-
-| ID | Requirement |
-|----|------------|
-| FR-ADM-01 | RBAC: roles `user` (Normal) / `owner` (Data Owner) |
-| FR-ADM-02 | Backend returns 403 Forbidden (unauthorized role) / 401 Unauthorized (unauthenticated) |
-| FR-ADM-03 | Frontend hides unavailable UI elements by role |
-| FR-ADM-04 | Promote/demote roles; enforce ≥ 1 Data Owner |
-| FR-ADM-05 | Audit log all role changes |
-| FR-ADM-06 | User management page: list users, roles |
-| FR-ADM-07 | Filterable audit log view: entity type, entity ID, user, date range |
+### 3.4 Use Case Specifications
 
 ---
 
-## 7. Use Case Index
+## UC-AUTH-01: Register Account
 
-| UC ID | Use Case | Primary Actor | Priority | Status |
-|-------|----------|---------------|----------|--------|
-| UC-AUTH-01 | Register Account | Guest | High | Specified |
-| UC-AUTH-02 | Login | All Users | High | Specified |
-| UC-AUTH-03 | Logout / Session Management | All Users | Medium | Specified |
-| UC-IMG-01 | Upload Single Image | User, Owner | High | Specified |
-| UC-IMG-02 | Batch Upload | User, Owner | High | Specified |
-| UC-SEG-01 | Auto-Segment Colonies | System (automated) | High | Specified |
-| UC-SEG-02 | Edit Bounding Boxes | User, Owner | High | Specified |
-| UC-SEG-03 | Batch Segmentation Review | User, Owner | Medium | Specified |
-| UC-RET-01 | Retrieve Species | User, Owner | High | Specified |
-| UC-VIZ-01 | View Ranked Results | User, Owner | High | Specified |
-| UC-VIZ-02 | KNN Graph Visualization | User, Owner | Medium | Specified (Phase 2) |
-| UC-DATA-01 | Index New Data | Data Owner | High | Specified |
-| UC-DATA-02 | Create Species | Data Owner | High | Specified |
-| UC-DATA-03 | Rename Species | Data Owner | Medium | Specified |
-| UC-DATA-04 | Browse Database | User, Owner | High | Specified |
-| UC-DATA-05 | Archive and Restore Data | Data Owner | High | Specified |
-| UC-FB-01 | Submit Feedback (Query Result) | User, Owner | High | Specified |
-| UC-FB-02 | Submit Feedback (Database Entry) | User, Owner | Medium | Specified |
-| UC-FB-03 | Review and Process Feedback | Data Owner | High | Specified |
-| UC-TRN-01 | Re-index Qdrant | Data Owner | High | Specified |
-| UC-TRN-02 | Fine-tune Model | Data Owner | Medium | Specified |
-| UC-TRN-03 | Deploy Model | Data Owner | High | Specified |
-| UC-TRN-04 | Rollback Model | Data Owner | Medium | Specified |
-| UC-ADM-01 | Manage User Roles | Data Owner | High | Specified |
-| UC-ADM-02 | View Audit Log | Data Owner | Medium | Specified |
+| **Use Case ID:**        | UC-AUTH-01 |
+| **Use Case Name:**      | Register Account |
+| **Created By:**         | SRS Generator | **Last Updated By:** | SRS Generator |
+| **Date Created:**       | 2026-06-02 | **Date Last Updated:** | 2026-06-02 |
+
+| **Actor:**              | Researcher (Primary) |
+| **Description:**        | A researcher creates a new account by providing email, password, and name. The system validates uniqueness of the email, hashes the password, and returns JWT tokens for immediate login. The first registered user in the system is automatically assigned the Data Owner role. |
+| **Preconditions:**      | 1. Researcher is not already authenticated. 2. Email is not already registered in the system. |
+| **Postconditions:**     | 1. New user record created in `users` table with hashed password. 2. JWT access token and refresh token issued. 3. If first user: role set to `owner`; otherwise role set to `user`. 4. Audit log entry created for registration. |
+| **Priority:**           | High |
+| **Frequency of Use:**   | 5–20 times per month (new researcher onboarding) |
+| **Includes:**           | None |
+| **Special Requirements:** | 1. Password must be minimum 8 characters. 2. Email must be valid format (RFC 5322). 3. Password stored as bcrypt hash (cost factor 12). 4. Access token expires in 30 minutes; refresh token expires in 7 days. |
+| **Assumptions:**        | 1. Email verification is configurable but auto-activation is default per `08-roles-and-permissions.md`. 2. First-user auto-owner is implemented. |
+| **Notes and Issues:**   | **Implementation gap:** Auth backend currently uses in-memory `MemoryStore`. PostgreSQL migration exists (`0001_initial_schema.py`) but code is not connected to SQL database. Frontend register page (`register-page.tsx`) is a shell. |
+
+### Main Flow of Events
+
+| Step | Actor | System Response |
+|------|-------|-----------------|
+| 1 | Researcher navigates to registration page | |
+| 2 | | System displays registration form with fields: email, password, confirm password, name |
+| 3 | Researcher enters email, password, confirm password, and name, then clicks "Register" | |
+| 4 | | System validates all fields: email format, password length ≥8, passwords match, name not empty |
+| 5 | | System checks email uniqueness against `users` table |
+| 6 | | System hashes password with bcrypt |
+| 7 | | System determines role: `owner` if `users` table is empty, else `user` |
+| 8 | | System creates user record in `users` table with `is_active = true` |
+| 9 | | System generates JWT access token (30 min expiry) and refresh token (7 day expiry) |
+| 10 | | System stores refresh token hash in `refresh_tokens` table |
+| 11 | | System writes audit log entry: `action="user_registered"` |
+| 12 | | System returns 201 Created with `{access_token, refresh_token, token_type, expires_in}` |
+
+### Alternative Courses
+
+**AC.1: First User Registration** — At step 7, if `users` table is empty:
+
+| Step | Actor | System Response |
+|------|-------|-----------------|
+| AC.1.1 | | System assigns role `owner` |
+| AC.1.2 | | Continue from step 8 of main flow |
+
+### Exceptions
+
+**EX.1: Email Already Registered** — At step 5, if email exists:
+
+| Step | Actor | System Response |
+|------|-------|-----------------|
+| EX.1.1 | | System returns 409 Conflict: `{"detail": "Email already registered"}` |
+| **Final state:** Researcher remains on registration form; email field highlighted with error. | | |
+
+**EX.2: Validation Failure** — At step 4, if any field is invalid:
+
+| Step | Actor | System Response |
+|------|-------|-----------------|
+| EX.2.1 | | System returns 422 Unprocessable Entity with field-level error messages |
+| **Final state:** Researcher sees inline validation errors; form not submitted. | | |
+
+**EX.3: Database Failure** — At step 8, if database insert fails:
+
+| Step | Actor | System Response |
+|------|-------|-----------------|
+| EX.3.1 | | System returns 500 Internal Server Error |
+| **Final state:** No user created; Researcher sees generic error message. | | |
 
 ---
 
-## 8. Use Case Specifications — Authentication
+## UC-AUTH-02: Login
 
-### UC-AUTH-01: Register Account
+| **Use Case ID:**        | UC-AUTH-02 |
+| **Use Case Name:**      | Login |
+| **Created By:**         | SRS Generator | **Last Updated By:** | SRS Generator |
+| **Date Created:**       | 2026-06-02 | **Date Last Updated:** | 2026-06-02 |
 
-| **UC ID:** UC-AUTH-01 | **Name:** Register Account |
-| **Created By:** Engineering Team | **Last Updated:** 2026-05-29 |
+| **Actor:**              | Researcher (Primary) |
+| **Description:**        | A researcher authenticates by providing email and password. The system verifies credentials against stored bcrypt hash, generates a JWT access token and refresh token, and establishes an authenticated session. Subsequent API calls use the access token in the Authorization header. |
+| **Preconditions:**      | 1. Researcher has a registered account. 2. Account is active (`is_active = true`). |
+| **Postconditions:**     | 1. JWT access token issued (30 min). 2. Refresh token stored in database. 3. Audit log entry created for login. 4. Researcher redirected to dashboard. |
+| **Priority:**           | High |
+| **Frequency of Use:**   | 50–200 times per day (once per session per active researcher) |
+| **Includes:**           | None |
+| **Special Requirements:** | 1. Access token: Bearer JWT, 30-minute expiry. 2. Refresh token: opaque UUID, 7-day expiry, single-use (rotated on refresh). 3. Rate limiting: 5 failed attempts per email per 15 minutes. 4. Tokens must be validated on every protected endpoint. |
+| **Assumptions:**        | 1. JWT secret is configured via environment variable `MYCOAI_BACKEND_JWT_SECRET`. 2. Frontend stores tokens in localStorage (per current implementation). |
+| **Notes and Issues:**   | **Implementation gap:** Auth uses in-memory `MemoryStore` rather than PostgreSQL. Token validation middleware exists (`core/dependencies.py`) but refresh token rotation is not yet implemented. |
 
-| **Actor:** | Guest |
-| **Description:** | Visitor creates a new user account with email, password, and name. The first registered user is automatically assigned the Data Owner role; subsequent registrations receive Normal User role. |
-| **Trigger:** | User clicks "Register" on the login page. |
-| **Preconditions:** | 1. User is not authenticated. 2. Email not already registered. |
-| **Postconditions:** | 1. User account created. 2. User auto-logged in (access + refresh tokens returned). 3. If first user: role=`owner`; otherwise: role=`user`. |
-| **Priority:** | High |
-| **Frequency:** | Infrequent (account creation) |
-
-#### Main Flow
-
-| Step | Actor | System Response |
-|------|-------|-----------------|
-| 1 | User navigates to `/register` | |
-| 2 | | System displays registration form: email, password, name |
-| 3 | User fills form, submits | |
-| 4 | | System validates: email format, password ≥ 8 chars, name not empty |
-| 5 | | System checks email uniqueness |
-| 6 | | System hashes password (bcrypt, 12 rounds) |
-| 7 | | System creates user record; if first user, sets role=`owner` |
-| 8 | | System generates JWT access + refresh tokens |
-| 9 | | System sets refresh token in httpOnly cookie |
-| 10 | | System redirects to upload page |
-
-#### Exceptions
-
-**EX.1: Email Already Registered**
+### Main Flow of Events
 
 | Step | Actor | System Response |
 |------|-------|-----------------|
-| EX.1.1 | | System displays "An account with this email already exists." |
-| EX.1.2 | | System offers link to login page |
-| **Final state:** Registration form preserved; user may log in |
+| 1 | Researcher navigates to login page | |
+| 2 | | System displays login form with email and password fields |
+| 3 | Researcher enters email and password, clicks "Login" | |
+| 4 | | System validates email format and that password is not empty |
+| 5 | | System looks up user by email in `users` table |
+| 6 | | System verifies password against stored bcrypt hash |
+| 7 | | System checks account is active (`is_active = true`) |
+| 8 | | System generates JWT access token (30 min) and refresh token (7 days) |
+| 9 | | System stores refresh token hash in `refresh_tokens` table |
+| 10 | | System writes audit log entry: `action="user_login"` |
+| 11 | | System returns 200 OK with `{access_token, refresh_token, token_type, expires_in}` |
 
-**EX.2: Validation Failure**
+### Alternative Courses
+
+None.
+
+### Exceptions
+
+**EX.1: Invalid Credentials** — At step 5 or step 6, if user not found or password mismatch:
 
 | Step | Actor | System Response |
 |------|-------|-----------------|
-| EX.2.1 | | System highlights invalid fields with inline error messages |
-| **Final state:** Form preserved with errors; user corrects and resubmits |
+| EX.1.1 | | System increments failed login counter for the email |
+| EX.1.2 | | System returns 401 Unauthorized: `{"detail": "Invalid email or password"}` |
+| **Final state:** Researcher remains on login page with error message. | | |
+
+**EX.2: Account Disabled** — At step 7, if `is_active = false`:
+
+| Step | Actor | System Response |
+|------|-------|-----------------|
+| EX.2.1 | | System returns 403 Forbidden: `{"detail": "Account is disabled"}` |
+| **Final state:** Researcher sees account disabled message. | | |
+
+**EX.3: Rate Limit Exceeded** — At step 4, if 5+ failed attempts in 15 minutes:
+
+| Step | Actor | System Response |
+|------|-------|-----------------|
+| EX.3.1 | | System returns 429 Too Many Requests: `{"detail": "Too many login attempts. Try again in 15 minutes."}` |
+| **Final state:** Login form locked for 15 minutes. | | |
+
+**EX.4: User Not Found** — At step 5, if email does not exist:
+
+| Step | Actor | System Response |
+|------|-------|-----------------|
+| EX.4.1 | | System returns 401 Unauthorized (same message as invalid password to avoid user enumeration) |
+| **Final state:** Same as EX.1. | | |
 
 ---
 
-### UC-AUTH-02: Login
+## UC-IMAGE-01: Upload Image for Identification
 
-| **UC ID:** UC-AUTH-02 | **Name:** Login |
-| **Created By:** Engineering Team | **Last Updated:** 2026-05-29 |
+| **Use Case ID:**        | UC-IMAGE-01 |
+| **Use Case Name:**      | Upload Image for Identification |
+| **Created By:**         | SRS Generator | **Last Updated By:** | SRS Generator |
+| **Date Created:**       | 2026-06-02 | **Date Last Updated:** | 2026-06-02 |
 
-| **Actor:** | Normal User, Data Owner |
-| **Description:** | Registered user authenticates with email and password. System returns JWT access token (1h) and refresh token (30d). |
-| **Trigger:** | User enters credentials on `/login` and clicks "Log In". |
-| **Preconditions:** | 1. User account exists. 2. Account is not deactivated. |
-| **Postconditions:** | 1. Access token returned (1h TTL). 2. Refresh token set in httpOnly cookie (30d TTL). |
-| **Priority:** | High |
-| **Frequency:** | Daily per user |
+| **Actor:**              | Researcher (Primary), AI Segmentation Service (Secondary) |
+| **Description:**        | A researcher uploads a Petri dish plate image of a fungal strain with associated metadata (strain identifier, growth medium, optional max colony count). The system stores the image, runs automated colony segmentation (KMeans or Contour method), detects colony bounding boxes, crops segment images, and returns the segmentation result for review. |
+| **Preconditions:**      | 1. Researcher is authenticated (valid JWT). 2. Image is in JPEG, PNG, or TIFF format, minimum 256×256 px. |
+| **Postconditions:**     | 1. Image record created in `images` table. 2. Segment records created in `segments` table with bounding boxes and crop paths. 3. Cropped segment images saved to storage. 4. Audit log entry created. 5. Segmentation result returned for researcher review. |
+| **Priority:**           | High |
+| **Frequency of Use:**   | 20–100 times per day |
+| **Includes:**           | UC-AUTH-02 (authentication required at step 1) |
+| **Special Requirements:** | 1. Supported formats: JPEG, PNG, TIFF. 2. Min resolution: 256×256 px. 3. Segmentation methods: KMeans (default) or Contour. 4. Max colonies configurable: 1–10 (default: model confidence threshold). 5. File size limit: 50 MB per image. |
+| **Assumptions:**        | 1. Segmentation pipeline (`SegmentationPipeline` class) is functional. 2. Upload storage path is configured and writable. |
+| **Notes and Issues:**   | **Implementation gap:** `SegmentationPipeline` class exists in `segmentation.py` but integration with the API via `routes.py` is partially stubbed. Frontend upload page (`upload-page.tsx`) has functional `FileDropzone`. Batch upload endpoint (`/images/batch`) exists but batch CSV parsing is not fully implemented. |
 
-#### Main Flow
-
-| Step | Actor | System Response |
-|------|-------|-----------------|
-| 1 | User navigates to `/login` | |
-| 2 | | System displays login form: email, password |
-| 3 | User enters credentials, clicks "Log In" | |
-| 4 | | System verifies email exists, bcrypt compares password |
-| 5 | | System generates JWT access token (1h, HS256) |
-| 6 | | System generates refresh token, stores hash in DB |
-| 7 | | System sets refresh token as httpOnly/Secure/SameSite=Strict cookie |
-| 8 | | System returns access token in response body |
-| 9 | | System redirects to upload page |
-
-#### Exceptions
-
-**EX.1: Invalid Credentials**
+### Main Flow of Events
 
 | Step | Actor | System Response |
 |------|-------|-----------------|
-| EX.1.1 | | System displays "Invalid email or password." |
-| EX.1.2 | | System increments failed attempt counter for rate limiting |
-| **Final state:** Login form preserved; rate limit enforced (5/IP/min) |
+| 1 | Researcher navigates to upload page (authenticated) | |
+| 2 | | System displays upload form with: file dropzone, strain identifier field (free text), media dropdown (predefined list), max colonies slider (1–10 or "default") |
+| 3 | Researcher selects image file, enters strain identifier, selects media, optionally sets max colonies | |
+| 4 | Researcher clicks "Upload and Segment" | |
+| 5 | | System validates image format and dimensions |
+| 6 | | System creates image record in `images` table with status `processing` |
+| 7 | | System saves original image file to storage (`Dataset/uploads/{image_id}/`) |
+| 8 | | System invokes AI Segmentation Service with the image and segmentation method |
+| 9 | | AI Segmentation Service detects colonies: produces 1–N bounding boxes with (x, y, w, h) coordinates |
+| 10 | | AI Segmentation Service crops segment images from source image, saves to storage |
+| 11 | | System creates segment records in `segments` table for each detected colony |
+| 12 | | System updates image status to `segmented` |
+| 13 | | System writes audit log entry: `action="image_uploaded"` |
+| 14 | | System returns 201 Created with `{image_id, strain, media, status, segments[{id, segment_index, bbox, crop_url}]}` |
 
-**EX.2: Rate Limit Exceeded**
+### Alternative Courses
+
+**AC.1: No Colonies Detected** — At step 9, if segmentation returns zero bounding boxes:
 
 | Step | Actor | System Response |
 |------|-------|-----------------|
-| EX.2.1 | | System returns HTTP 429 "Too many login attempts. Try again in 1 minute." |
-| **Final state:** User blocked for 60 seconds |
+| AC.1.1 | | System updates image status to `segmentation_failed` |
+| AC.1.2 | | System returns 200 OK with `{image_id, status: "segmentation_failed", segments: [], message: "No colonies detected. Try adjusting segmentation method or re-uploading."}` |
+| AC.1.3 | Researcher may re-upload or change segmentation method | |
 
-**EX.3: Account Deactivated**
+**AC.2: Batch Upload** — At step 3, if researcher selects batch folder upload instead of single image:
 
 | Step | Actor | System Response |
 |------|-------|-----------------|
-| EX.3.1 | | System displays "This account has been deactivated. Contact a Data Owner." |
-| **Final state:** Login rejected |
+| AC.2.1 | Researcher selects folder with `template.json` and strain subdirectories | |
+| AC.2.2 | | System parses `template.json` for column mappings and defaults |
+| AC.2.3 | | System queues batch job via Celery worker |
+| AC.2.4 | | System returns 202 Accepted with `{job_id, status: "pending"}` |
+| AC.2.5 | Researcher monitors batch progress via job status endpoint | |
+
+### Exceptions
+
+**EX.1: Invalid Image Format** — At step 5, if format is unsupported or resolution too low:
+
+| Step | Actor | System Response |
+|------|-------|-----------------|
+| EX.1.1 | | System returns 400 Bad Request: `{"detail": "Unsupported image format. Accepted: JPEG, PNG, TIFF. Minimum resolution: 256x256."}` |
+| **Final state:** Researcher stays on upload page; file rejected. | | |
+
+**EX.2: File Too Large** — At step 5, if file exceeds 50 MB:
+
+| Step | Actor | System Response |
+|------|-------|-----------------|
+| EX.2.1 | | System returns 413 Payload Too Large: `{"detail": "File exceeds maximum size of 50 MB."}` |
+| **Final state:** Researcher stays on upload page; file rejected. | | |
+
+**EX.3: Storage Failure** — At step 7, if file cannot be saved:
+
+| Step | Actor | System Response |
+|------|-------|-----------------|
+| EX.3.1 | | System rolls back image record creation |
+| EX.3.2 | | System returns 500 Internal Server Error |
+| **Final state:** No image record persists; Researcher sees generic error. | | |
+
+**EX.4: Segmentation Timeout** — At step 9, if segmentation exceeds 60 seconds:
+
+| Step | Actor | System Response |
+|------|-------|-----------------|
+| EX.4.1 | | System updates image status to `segmentation_failed` |
+| EX.4.2 | | System returns 500 Internal Server Error: `{"detail": "Segmentation timed out."}` |
+| **Final state:** Image record exists with failed status; segments not created. Researcher may retry. | | |
 
 ---
 
-### UC-AUTH-03: Logout / Session Management
+## UC-IMAGE-02: Edit Segmentation
 
-| **UC ID:** UC-AUTH-03 | **Name:** Logout / Session Management |
-| **Created By:** Engineering Team | **Last Updated:** 2026-05-29 |
+| **Use Case ID:**        | UC-IMAGE-02 |
+| **Use Case Name:**      | Edit Segmentation |
+| **Created By:**         | SRS Generator | **Last Updated By:** | SRS Generator |
+| **Date Created:**       | 2026-06-02 | **Date Last Updated:** | 2026-06-02 |
 
-| **Actor:** | Normal User, Data Owner |
-| **Description:** | User terminates the current session. System revokes the refresh token in the database and clears the client-side token. Multiple concurrent sessions are supported (multiple refresh tokens per user). |
-| **Trigger:** | User clicks "Log Out" in the application header. |
-| **Preconditions:** | User is authenticated. |
-| **Postconditions:** | 1. Refresh token invalidated in DB. 2. Client tokens cleared. 3. User redirected to login page. |
-| **Priority:** | Medium |
-| **Frequency:** | Daily per user |
+| **Actor:**              | Researcher (Primary) |
+| **Description:**        | After automated segmentation of an uploaded image, a researcher reviews the detected colony bounding boxes. The researcher can reposition, resize, add new, or delete bounding boxes to correct misdetections before the segments are used for species retrieval. Changes are saved to the segment records in the database. |
+| **Preconditions:**      | 1. Researcher is authenticated. 2. Image has been uploaded and segmented (UC-IMAGE-01 completed). 3. Image status is `segmented`. |
+| **Postconditions:**     | 1. Segment records updated with modified bounding box coordinates. 2. Deleted segments soft-archived (`is_archived = true`). 3. New segment crops generated and stored. 4. Image ready for retrieval. 5. Audit log entry created. |
+| **Priority:**           | Medium |
+| **Frequency of Use:**   | 10–30 times per day (when auto-segmentation needs correction) |
+| **Includes:**           | UC-AUTH-02 (authentication) |
+| **Special Requirements:** | 1. Bounding boxes must remain within image boundaries. 2. Minimum bbox dimensions: 32×32 px. 3. At least 1 segment must remain after edits. 4. Drag-to-move, corner-handle-resize in UI. 5. Aspect ratio maintained by default. |
+| **Assumptions:**        | 1. Frontend `upload-page.tsx` implements draggable/resizable bounding box overlays. 2. `PATCH /images/{id}/segments` endpoint is functional. |
+| **Notes and Issues:**   | **Implementation gap:** Bounding box editing UI exists in upload-page component but the save endpoint (`routes.py` `update_segments`) integration status is unverified. New bbox addition requires manual crop extraction. |
 
-#### Main Flow
+### Main Flow of Events
 
 | Step | Actor | System Response |
 |------|-------|-----------------|
-| 1 | User clicks "Log Out" | |
-| 2 | | System sends POST `/api/v1/auth/logout` with access token |
-| 3 | | System identifies refresh token from cookie, marks as revoked in DB |
-| 4 | | System clears httpOnly cookie (expiry=0) |
-| 5 | | System returns 200 OK |
-| 6 | | Client clears access token from memory, redirects to `/login` |
+| 1 | Researcher views segmentation result from UC-IMAGE-01 | |
+| 2 | | System displays image with bounding box overlays for each detected segment |
+| 3 | Researcher adjusts a bounding box (drag to reposition, drag corners to resize) | |
+| 4 | | System updates overlay in real-time |
+| 5 | Researcher repeats step 3 for other segments as needed | |
+| 6 | Researcher clicks "Save Edits" | |
+| 7 | | System validates all bounding boxes: within image bounds, minimum 32×32 px |
+| 8 | | System updates affected segment records in `segments` table with new bbox coordinates |
+| 9 | | System re-crops segment images from source image using new coordinates |
+| 10 | | System writes audit log entry: `action="segmentation_edited"` |
+| 11 | | System returns 200 OK with updated segment list |
+
+### Alternative Courses
+
+**AC.1: Delete Segment** — At step 3, if researcher deletes a segment:
+
+| Step | Actor | System Response |
+|------|-------|-----------------|
+| AC.1.1 | Researcher clicks delete (X) on a bounding box overlay | |
+| AC.1.2 | | System hides the bounding box overlay (soft delete, undoable) |
+| AC.1.3 | Researcher clicks "Save Edits" | |
+| AC.1.4 | | System sets `is_archived = true` on the deleted segment record |
+| AC.1.5 | | Continue from step 10 of main flow |
+
+**AC.2: Add New Segment** — At step 3, if researcher adds a new bounding box:
+
+| Step | Actor | System Response |
+|------|-------|-----------------|
+| AC.2.1 | Researcher click-drags on empty area of the image | |
+| AC.2.2 | | System creates a new bounding box overlay |
+| AC.2.3 | Researcher clicks "Save Edits" | |
+| AC.2.4 | | System creates new segment record in `segments` table with next `segment_index` |
+| AC.2.5 | | System crops new segment image from source image |
+| AC.2.6 | | Continue from step 10 of main flow |
+
+**AC.3: Undo Before Save** — At step 5, if researcher undoes a delete:
+
+| Step | Actor | System Response |
+|------|-------|-----------------|
+| AC.3.1 | Researcher clicks undo on a soft-deleted segment | |
+| AC.3.2 | | System restores bounding box overlay (no DB change yet) |
+| AC.3.3 | | Continue at step 5 of main flow |
+
+### Exceptions
+
+**EX.1: Bounds Validation Failure** — At step 7, if any bbox exceeds image dimensions or is smaller than 32×32:
+
+| Step | Actor | System Response |
+|------|-------|-----------------|
+| EX.1.1 | | System returns 400 Bad Request with detail on which segment failed validation |
+| **Final state:** No changes saved; Researcher adjusts and retries. | | |
+
+**EX.2: No Segments Remain** — At step 7, if all segments have been deleted:
+
+| Step | Actor | System Response |
+|------|-------|-----------------|
+| EX.2.1 | | System returns 400 Bad Request: `{"detail": "At least one segment must remain. Add a segment or undo deletions."}` |
+| **Final state:** No changes saved; Researcher must add or undo a segment. | | |
+
+**EX.3: Image Not Found** — At step 2, if image_id does not exist:
+
+| Step | Actor | System Response |
+|------|-------|-----------------|
+| EX.3.1 | | System returns 404 Not Found |
+| **Final state:** Researcher redirected to upload or database view. | | |
 
 ---
 
-## 9. Use Case Specifications — Image Input
+## UC-RETRIEVAL-01: Query Species Identity
 
-### UC-IMG-01: Upload Single Image
+| **Use Case ID:**        | UC-RETRIEVAL-01 |
+| **Use Case Name:**      | Query Species Identity |
+| **Created By:**         | SRS Generator | **Last Updated By:** | SRS Generator |
+| **Date Created:**       | 2026-06-02 | **Date Last Updated:** | 2026-06-02 |
 
-| **UC ID:** UC-IMG-01 | **Name:** Upload Single Image |
-| **Created By:** Engineering Team | **Last Updated:** 2026-05-29 |
+| **Actor:**              | Researcher (Primary), Retrieval Service (Secondary), Qdrant (Secondary) |
+| **Description:**        | A researcher triggers species retrieval from segmented colony crops of one or more uploaded images. The system extracts feature embeddings using a deep learning model (default: EfficientNetB1 finetuned), queries Qdrant vector database for k-NN neighbors, applies sibling filtering and aggregation strategy across all segments, and returns a ranked list of predicted species with confidence scores. |
+| **Preconditions:**      | 1. Researcher is authenticated. 2. At least one image has been uploaded and segmented (from UC-IMAGE-01). 3. Qdrant service is running and populated with reference vectors. |
+| **Postconditions:**     | 1. Retrieval job record created in `retrieval_jobs` table with status `completed`. 2. Retrieval results stored in `retrieval_results` table with ranked species and scores. 3. Neighbor details stored in `retrieval_neighbors` table. 4. Audit log entry created. 5. Ranked species predictions returned for display. |
+| **Priority:**           | High |
+| **Frequency of Use:**   | 20–80 times per day |
+| **Includes:**           | UC-AUTH-02 (authentication) |
+| **Special Requirements:** | 1. k-NN parameter configurable: 1–20 (default: 5). 2. Aggregation strategies: `weighted`, `uni`, `manual_weighted`. 3. Environment strategy: `same_medium` (E1, default), `all_media` (E2), `specific_medium` (E3), `exclude_medium` (E4). 4. Response time: <5 seconds for single-image query. 5. Sibling exclusion: segments from same source image excluded from neighbor set. |
+| **Assumptions:**        | 1. Feature extraction models are loaded and available. 2. Qdrant collection `myco_fungi_features_full_finetuned` exists with 13 named vectors per point. 3. Default vector: `EfficientNetB1_finetuned` (1280-dim). |
+| **Notes and Issues:**   | **Implementation gap:** `api/retrieval.py` returns hardcoded mock results (`"Penicillium commune"`). Real Qdrant query integration exists in `qdrant/operations.py` but is not wired to the API endpoint. Feature extraction pipeline exists in `services/feature_extraction.py` but is a stub. |
 
-| **Actor:** | Normal User, Data Owner |
-| **Description:** | Authenticated user uploads one fungal colony image, specifies strain identifier and growth medium, configures max colonies, and triggers segmentation. One image = one strain × one medium × N colonies. |
-| **Trigger:** | User drops or selects an image on the Upload page. |
-| **Preconditions:** | 1. User authenticated. 2. Image meets format/size constraints. |
-| **Postconditions:** | 1. Image saved to Dataset/ storage. 2. Image record created in DB. 3. Celery segmentation task queued. 4. UI transitions to segmentation review. |
-| **Priority:** | High |
-| **Frequency:** | 10-100/day |
-| **Includes:** | UC-SEG-01 |
-
-#### Main Flow
-
-| Step | Actor | System Response |
-|------|-------|-----------------|
-| 1 | User navigates to `/upload`, selects "Single Image" tab | |
-| 2 | User drops image or clicks to browse | System shows image preview |
-| 3 | User enters strain identifier (free text) | |
-| 4 | User selects growth medium from dropdown (MEA, CYA, etc.) | |
-| 5 | User optionally sets max colonies (1-10) or leaves "default (model threshold)" | |
-| 6 | User clicks "Process" | |
-| 7 | | System validates: image format, size ≥ 256x256, ≤ 50MB |
-| 8 | | System saves image to `Dataset/uploads/{user_id}/{strain}/{media}/` |
-| 9 | | System creates image record in DB (status: pending_segmentation) |
-| 10 | | System dispatches Celery segmentation task |
-| 11 | | System returns `{ image_id, job_id, status: pending_segmentation }` |
-| 12 | | Client polls job status → transitions to segmentation review |
-
-#### Exceptions
-
-**EX.1: Invalid Image**
+### Main Flow of Events
 
 | Step | Actor | System Response |
 |------|-------|-----------------|
-| EX.1.1 | | System highlights error: "Image must be JPEG, PNG, or TIFF, minimum 256x256, maximum 50MB." |
-| **Final state:** Upload form preserved |
+| 1 | Researcher navigates to results page or clicks "Identify Species" on an uploaded image | |
+| 2 | | System displays query form: image selector (shows uploaded/segmented images with strain info), k value (slider 1–20, default 5), aggregation strategy (dropdown: weighted/uni/manual_weighted), environment strategy (dropdown: E1/E2/E3/E4) |
+| 3 | Researcher selects image(s), configures retrieval parameters, clicks "Query" | |
+| 4 | | System creates retrieval job record in `retrieval_jobs` table with status `processing` |
+| 5 | | System extracts feature embeddings from each segment crop using configured extractor model |
+| 6 | | System constructs Qdrant query with: vector(s), k value, environment filter, sibling exclusion filter |
+| 7 | | Qdrant returns k nearest neighbors per segment with cosine similarity scores |
+| 8 | | System applies sibling exclusion (filters out neighbors from same source image) |
+| 9 | | System applies aggregation strategy across all segments: computes species ranking with confidence scores |
+| 10 | | System stores retrieval results in `retrieval_results` table with ranked species |
+| 11 | | System stores neighbor details in `retrieval_neighbors` table |
+| 12 | | System updates retrieval job status to `completed` |
+| 13 | | System writes audit log entry: `action="retrieval_query"` |
+| 14 | | System returns 200 OK with `{job_id, strain, rankings[{rank, species, score, neighbors[]}], query_details}` |
 
-**EX.2: Missing Strain or Media**
+### Alternative Courses
+
+**AC.1: Asynchronous Query (Long-Running)** — At step 3, if researcher chooses async mode or query is expected to exceed 5 seconds:
 
 | Step | Actor | System Response |
 |------|-------|-----------------|
-| EX.2.1 | | System highlights required fields with inline validation errors |
-| **Final state:** Form preserved |
+| AC.1.1 | | System creates retrieval job with status `pending` |
+| AC.1.2 | | System dispatches query to Celery worker |
+| AC.1.3 | | System returns 202 Accepted with `{job_id, status: "pending", estimated_seconds}` |
+| AC.1.4 | Researcher polls `GET /retrieval/jobs/{id}` for status | |
+| AC.1.5 | | When job completes, system returns results via `GET /retrieval/jobs/{id}/results` |
+
+**AC.2: Multi-Image Query** — At step 3, if researcher selects multiple images of the same strain on different media:
+
+| Step | Actor | System Response |
+|------|-------|-----------------|
+| AC.2.1 | | System segments all images independently |
+| AC.2.2 | | System pools all segments from all images for the strain |
+| AC.2.3 | | System applies aggregation across all pooled segments |
+| AC.2.4 | | Continue from step 9 of main flow |
+
+### Exceptions
+
+**EX.1: No Segments Available** — At step 3, if selected image has no segments (segmentation failed or not yet performed):
+
+| Step | Actor | System Response |
+|------|-------|-----------------|
+| EX.1.1 | | System returns 400 Bad Request: `{"detail": "Image has no segments. Run segmentation first."}` |
+| **Final state:** Researcher stays on query form; must segment or select different image. | | |
+
+**EX.2: Qdrant Unavailable** — At step 6, if Qdrant service is unreachable:
+
+| Step | Actor | System Response |
+|------|-------|-----------------|
+| EX.2.1 | | System updates job status to `failed` with error message |
+| EX.2.2 | | System returns 503 Service Unavailable: `{"detail": "Retrieval service unavailable. Try again later."}` |
+| **Final state:** Job marked failed; Researcher may retry later. | | |
+
+**EX.3: Feature Extraction Failure** — At step 5, if model fails to load or extract features:
+
+| Step | Actor | System Response |
+|------|-------|-----------------|
+| EX.3.1 | | System updates job status to `failed` |
+| EX.3.2 | | System returns 500 Internal Server Error: `{"detail": "Feature extraction failed."}` |
+| **Final state:** Job marked failed; admin notified. | | |
+
+**EX.4: No Neighbors Found** — At step 7, if Qdrant returns zero neighbors (all filtered out or empty collection):
+
+| Step | Actor | System Response |
+|------|-------|-----------------|
+| EX.4.1 | | System returns 200 OK with `{job_id, strain, rankings: [], message: "No matching species found. Try adjusting environment strategy or K value."}` |
+| **Final state:** Job completed with empty results; Researcher may adjust parameters and retry. | | |
 
 ---
 
-### UC-IMG-02: Batch Upload
+## UC-DATA-01: Browse Database
 
-| **UC ID:** UC-IMG-02 | **Name:** Batch Upload |
-| **Created By:** Engineering Team | **Last Updated:** 2026-05-29 |
+| **Use Case ID:**        | UC-DATA-01 |
+| **Use Case Name:**      | Browse Database |
+| **Created By:**         | SRS Generator | **Last Updated By:** | SRS Generator |
+| **Date Created:**       | 2026-06-02 | **Date Last Updated:** | 2026-06-02 |
 
-| **Actor:** | Normal User, Data Owner |
-| **Description:** | User uploads a folder containing multiple strains, each with metadata.csv and images. System parses `template.json` for column mappings and processes all images in parallel via Celery batch workers. |
-| **Trigger:** | User uploads a batch folder on the Batch tab of the Upload page. |
-| **Preconditions:** | 1. User authenticated. 2. Folder follows template structure. 3. `template.json` is valid. |
-| **Postconditions:** | 1. All images saved. 2. Per-strain batch job created. 3. Batch preview shown. |
-| **Priority:** | High |
-| **Frequency:** | Weekly per research campaign |
-| **Includes:** | UC-IMG-01 (per image) |
+| **Actor:**              | Researcher (Primary) |
+| **Description:**        | A researcher browses the species database to understand what reference data exists. The researcher can view species, strains, and associated images, filter by species name, growth medium, or date range, view dashboard statistics, and navigate to detailed views of individual species or strains with their images. |
+| **Preconditions:**      | 1. Researcher is authenticated. 2. Database contains species, strain, and image records. |
+| **Postconditions:**     | 1. Researcher has viewed filtered/sorted database entries. 2. No data modifications occur (read-only). |
+| **Priority:**           | Medium |
+| **Frequency of Use:**   | 10–40 times per day |
+| **Includes:**           | UC-AUTH-02 (authentication) |
+| **Special Requirements:** | 1. Pagination: offset/limit with configurable page size (default 20). 2. Sorting: name, created_at, image count. 3. Filtering: text search (species/strain name), media type, date range, source. 4. Dashboard charts: species distribution pie, media distribution bar, timeline. |
+| **Assumptions:**        | 1. API endpoints `GET /species`, `GET /strains`, `GET /dashboard/*` are implemented. 2. Frontend `database-page.tsx` and `dashboard-page.tsx` render the data. |
+| **Notes and Issues:**   | **Implementation gap:** Dashboard chart endpoints return static mock data. Database page frontend is a shell. Species/strains API endpoints are scaffolded but backed by in-memory `MemoryStore` — not connected to PostgreSQL. Search and filtering logic is not implemented. |
 
-#### Main Flow
-
-| Step | Actor | System Response |
-|------|-------|-----------------|
-| 1 | User selects "Batch" tab on Upload page | |
-| 2 | User uploads folder containing `template.json` + strain subdirectories | |
-| 3 | | System parses `template.json`, validates column_mapping and defaults |
-| 4 | | System scans per-strain subdirectories, cross-references `metadata.csv` |
-| 5 | | System displays batch preview: strain count, image count per strain, medium summary |
-| 6 | User reviews batch preview, optionally removes individual images | |
-| 7 | User clicks "Process Batch" | |
-| 8 | | System creates batch job record (status: processing) |
-| 9 | | System dispatches Celery batch task (parallel per-strain segmentation) |
-| 10 | | System returns `{ batch_job_id, strain_count, image_count }` |
-| 11 | | Client polls batch progress; on completion, redirects to results |
-
-#### Exceptions
-
-**EX.1: Invalid template.json**
+### Main Flow of Events
 
 | Step | Actor | System Response |
 |------|-------|-----------------|
-| EX.1.1 | | System displays schema validation errors with line references |
-| **Final state:** Upload halted; user fixes template |
+| 1 | Researcher navigates to Database page | |
+| 2 | | System displays database overview: species list with image counts, filter panel (search box, media checkboxes, date range picker), pagination controls |
+| 3 | Researcher optionally enters search text, selects media filters, or adjusts date range | |
+| 4 | | System queries `species` table with applied filters, paginates results |
+| 5 | | System returns paginated species list with strain counts and image counts |
+| 6 | Researcher clicks on a species name | |
+| 7 | | System displays species detail: description, list of strains with metadata, associated images with thumbnails |
+| 8 | Researcher clicks on a strain to see its images | |
+| 9 | | System displays strain detail: images grouped by media type, each with thumbnail and metadata |
+| 10 | Researcher browses or returns to list | |
 
-**EX.2: Missing Files**
+### Alternative Courses
+
+**AC.1: View Dashboard** — At step 1, if researcher navigates to Dashboard instead:
 
 | Step | Actor | System Response |
 |------|-------|-----------------|
-| EX.2.1 | | System lists missing files per strain: "strain_001: missing metadata.csv" |
-| **Final state:** User may proceed with available data or fix folder |
+| AC.1.1 | Researcher navigates to Dashboard page | |
+| AC.1.2 | | System displays dashboard: total species/strains/images counts, species distribution pie chart, media distribution bar chart, timeline of uploads, Qdrant learned vs unlearned status |
+| AC.1.3 | Researcher views dashboard statistics | |
+
+**AC.2: Search with No Results** — At step 4, if filters match zero records:
+
+| Step | Actor | System Response |
+|------|-------|-----------------|
+| AC.2.1 | | System displays empty state: "No species match your filters. Try adjusting search criteria." |
+| AC.2.2 | Researcher adjusts filters and retries | |
+
+### Exceptions
+
+**EX.1: Database Connection Failure** — At step 4, if PostgreSQL is unreachable:
+
+| Step | Actor | System Response |
+|------|-------|-----------------|
+| EX.1.1 | | System returns 503 Service Unavailable |
+| **Final state:** Error page displayed; Researcher cannot browse database. | | |
+
+**EX.2: Page Out of Range** — At step 4, if requested page exceeds available pages:
+
+| Step | Actor | System Response |
+|------|-------|-----------------|
+| EX.2.1 | | System returns empty list with `total` count; pagination shows last available page |
+| **Final state:** Researcher sees no results but can navigate to valid pages. | | |
 
 ---
 
-## 10. Use Case Specifications — Segmentation
+## UC-FEEDBACK-01: Submit Feedback
 
-### UC-SEG-01: Auto-Segment Colonies
+| **Use Case ID:**        | UC-FEEDBACK-01 |
+| **Use Case Name:**      | Submit Feedback |
+| **Created By:**         | SRS Generator | **Last Updated By:** | SRS Generator |
+| **Date Created:**       | 2026-06-02 | **Date Last Updated:** | 2026-06-02 |
 
-| **UC ID:** UC-SEG-01 | **Name:** Auto-Segment Colonies |
-| **Created By:** Engineering Team | **Last Updated:** 2026-05-29 |
+| **Actor:**              | Researcher (Primary) |
+| **Description:**        | A researcher submits a correction when they believe a species prediction is wrong or a database entry contains inaccurate data. The researcher selects the predicted or database species, provides the correct species (from a known list or free text), and writes a description justifying the correction. The feedback is queued for Data Owner review. The researcher can view their own feedback history. |
+| **Preconditions:**      | 1. Researcher is authenticated. 2. A retrieval result or database entry exists for which feedback is being submitted. |
+| **Postconditions:**     | 1. Feedback record created in `feedback` table with status `pending`. 2. Researcher can see the feedback in their submission history. 3. Data Owner's feedback inbox updated. 4. Audit log entry created. |
+| **Priority:**           | Medium |
+| **Frequency of Use:**   | 5–20 times per month |
+| **Includes:**           | UC-AUTH-02 (authentication) |
+| **Special Requirements:** | 1. Feedback source must be tagged: `query_result` or `database_review`. 2. Description field is required (min 10 characters). 3. Suggested species: dropdown of known species plus "Other (specify)" with free text. 4. Optional supporting image upload. |
+| **Assumptions:**        | 1. Researcher has domain knowledge to identify correct species. 2. The feedback API endpoints are implemented. |
+| **Notes and Issues:**   | **Implementation gap:** Feedback API endpoints exist in `api/feedback.py` but are backed by `MemoryStore`. Frontend `feedback-page.tsx` is a shell. Notification to Data Owner on new feedback is not implemented. |
 
-| **Actor:** | System (automated), triggered by Normal User / Data Owner image upload |
-| **Description:** | System automatically detects fungal colonies in a plate image using the configured segmentation method. KMeans clusters HSV pixels (K=3) then spatially separates colonies. Contour uses Canny edge detection + circularity filtering. Produces 1-3 bounding boxes and cropped segment images. |
-| **Trigger:** | Image upload completed; Celery task dispatched by UC-IMG-01 or UC-IMG-02. |
-| **Preconditions:** | 1. Source image available at Dataset path. 2. Method specified (default: KMeans). |
-| **Postconditions:** | 1. 1-3 bboxes computed. 2. Segment crops saved to `prepared/{strain}/{media}/`. 3. Pipeline visualization generated. 4. Segment records created in DB. |
-| **Priority:** | High |
-| **Frequency:** | Per-image upload |
-| **Special Requirements:** | Single image ≤ 3 seconds; segmentation method configurable per batch |
-
-#### Main Flow
-
-| Step | Actor | System Response |
-|------|-------|-----------------|
-| 1 | | Celery worker receives segmentation task { image_path, method, max_colonies } |
-| 2 | | System preprocesses: petri dish detection, center crop to square, resize to 256x256 |
-| 3 | | System runs segmentation method: KMeans (HSV K=3 → spatial clustering → bbox refinement) or Contour (Canny → morphological close → circularity filter → top-3) |
-| 4 | | System refines bboxes: erosion, contour fitting, halo shrink |
-| 5 | | System applies max_colonies limit: top-N by confidence (if set) |
-| 6 | | System crops segment images from source at bbox coordinates |
-| 7 | | System generates pipeline visualization: 3-panel (source | prepared | bbox) |
-| 8 | | System creates segment records in DB |
-| 9 | | System updates image status to "segments_ready" |
-| 10 | | Client receives updated job status; transitions to segmentation review |
-
-#### Exceptions
-
-**EX.1: No Colonies Detected**
+### Main Flow of Events
 
 | Step | Actor | System Response |
 |------|-------|-----------------|
-| EX.1.1 | | System returns empty bbox list; image status = "no_colonies_detected" |
-| EX.1.2 | | System suggests user try Contour method or upload different image |
-| **Final state:** Image marked; user may retry with Contour |
+| 1 | Researcher views a retrieval result or database entry and clicks "Report Incorrect" | |
+| 2 | | System displays feedback form pre-populated with: source type, predicted/current species (auto-filled), query strain or database entity reference |
+| 3 | Researcher selects correct species from dropdown or enters free text for "Other", writes description justifying the correction |
+| 4 | Researcher optionally attaches supporting image |
+| 5 | Researcher clicks "Submit Feedback" | |
+| 6 | | System validates description length (min 10 chars) and that suggested species is provided |
+| 7 | | System creates feedback record in `feedback` table: status `pending`, submitter_id set, source and references set |
+| 8 | | System writes audit log entry: `action="feedback_submitted"` |
+| 9 | | System returns 201 Created with feedback item details |
+| 10 | | System notifies Data Owner of new pending feedback (if notification system is active) |
 
-**EX.2: Segmentation Timeout**
+### Alternative Courses
+
+**AC.1: Feedback on Database Entry** — At step 1, if researcher submits feedback from database browse (UC-DATA-01) instead of retrieval result:
 
 | Step | Actor | System Response |
 |------|-------|-----------------|
-| EX.2.1 | | System times out after 30s; marks image as failed |
-| **Final state:** User notified; may retry |
+| AC.1.1 | Researcher clicks "Report Issue" on a species/strain detail page | |
+| AC.1.2 | | System sets feedback source to `database_review`, pre-populates with current species/strain data |
+| AC.1.3 | | Continue from step 2 of main flow |
+
+**AC.2: View My Feedback** — At step 1, if researcher navigates to view their submitted feedback history:
+
+| Step | Actor | System Response |
+|------|-------|-----------------|
+| AC.2.1 | Researcher navigates to "My Feedback" page | |
+| AC.2.2 | | System queries `feedback` table filtered by `submitter_id`, ordered by submission date desc |
+| AC.2.3 | | System displays feedback list with status badges (pending/accepted/rejected), dates, and reviewer notes |
+| AC.2.4 | Researcher reviews their feedback history | |
+
+### Exceptions
+
+**EX.1: Description Too Short** — At step 6, if description is fewer than 10 characters:
+
+| Step | Actor | System Response |
+|------|-------|-----------------|
+| EX.1.1 | | System returns 422 Unprocessable Entity: `{"detail": "Description must be at least 10 characters."}` |
+| **Final state:** Researcher stays on form; must expand description. | | |
+
+**EX.2: Duplicate Feedback** — At step 7, if identical feedback already exists from same researcher on same entity:
+
+| Step | Actor | System Response |
+|------|-------|-----------------|
+| EX.2.1 | | System returns 409 Conflict: `{"detail": "You have already submitted feedback on this result."}` |
+| **Final state:** Researcher informed of existing submission. | | |
+
+**EX.3: Reference Not Found** — At step 7, if referenced retrieval_result_id or image_id does not exist:
+
+| Step | Actor | System Response |
+|------|-------|-----------------|
+| EX.3.1 | | System returns 404 Not Found: `{"detail": "Referenced result or image not found."}` |
+| **Final state:** Researcher redirected to valid result page. | | |
 
 ---
 
-### UC-SEG-02: Edit Bounding Boxes
+## UC-FEEDBACK-02: Review Feedback
 
-| **UC ID:** UC-SEG-02 | **Name:** Edit Bounding Boxes |
-| **Created By:** Engineering Team | **Last Updated:** 2026-05-29 |
+| **Use Case ID:**        | UC-FEEDBACK-02 |
+| **Use Case Name:**      | Review Feedback |
+| **Created By:**         | SRS Generator | **Last Updated By:** | SRS Generator |
+| **Date Created:**       | 2026-06-02 | **Date Last Updated:** | 2026-06-02 |
 
-| **Actor:** | Normal User, Data Owner |
-| **Description:** | User reviews auto-detected bounding boxes on the source image, optionally resizes, repositions, adds, or deletes boxes. Edits are saved before proceeding to retrieval. Minimum 1 segment must remain. |
-| **Trigger:** | Segmentation completes; bbox overlay displayed on results page. |
-| **Preconditions:** | 1. Segmentation complete. 2. At least 1 bbox exists. |
-| **Postconditions:** | 1. Updated bboxes persisted to DB. 2. Crops regenerated if bboxes modified. 3. User proceeds to retrieval. |
-| **Priority:** | High |
-| **Frequency:** | Per-image (most images require review) |
+| **Actor:**              | Data Owner (Primary) |
+| **Description:**        | A Data Owner reviews feedback submitted by researchers. The Data Owner examines each item (predicted species, suggested correction, description, submitter info) and decides to accept (update database), reject (dismiss with optional reason), or defer (leave pending for later). Accepted feedback triggers database updates and flags affected Qdrant points for re-indexing. Bulk actions are supported for efficiency. |
+| **Preconditions:**      | 1. Data Owner is authenticated with `owner` role. 2. At least one feedback item exists with status `pending`. |
+| **Postconditions:**     | 1. Feedback item status updated to `accepted`, `rejected`, or remains `pending` (deferred). 2. If accepted: strain species updated in database, affected Qdrant points flagged for re-indexing. 3. Audit log entry created for each action. 4. Submitter notified of decision (if notification system active). |
+| **Priority:**           | Medium |
+| **Frequency of Use:**   | 5–15 times per month (per batch of feedback items) |
+| **Includes:**           | UC-AUTH-02 (authentication) |
+| **Special Requirements:** | 1. Bulk accept/reject via checkbox selection and batch endpoint. 2. Filter inbox by: status, submitter, date range, species. 3. Accepted feedback: update strain species reference, flag Qdrant points. 4. Review note optional for accept/reject, required for reject. 5. At least one Data Owner must exist (can't demote last owner). |
+| **Assumptions:**        | 1. Data Owner reviews feedback periodically (not real-time). 2. Qdrant re-indexing is triggered by UC-TRAINING-01 (not automatic on accept). |
+| **Notes and Issues:**   | **Implementation gap:** Feedback review endpoints (`PATCH /feedback/{id}`, `POST /feedback/batch`) exist in API spec but business logic is stubbed. Notification to submitter on status change is not implemented. Qdrant point flagging on accept is not implemented. |
 
-#### Main Flow
-
-| Step | Actor | System Response |
-|------|-------|-----------------|
-| 1 | | System renders source image with bbox overlays |
-| 2 | User inspects boxes, optionally: drags to move, drags corner handles to resize, clicks empty area to add new bbox, presses Delete or clicks X to remove a bbox | |
-| 3 | User clicks "Save & Continue" | |
-| 4 | | System validates ≥ 1 segment remains |
-| 5 | | System saves updated bbox coordinates to DB |
-| 6 | | System re-crops segments using new bboxes |
-| 7 | | System transitions UI to retrieval query step |
-
-#### Exceptions
-
-**EX.1: All Segments Removed**
+### Main Flow of Events
 
 | Step | Actor | System Response |
 |------|-------|-----------------|
-| EX.1.1 | | System rejects save: "At least one bounding box must remain." |
-| **Final state:** User must keep or create at least 1 bbox |
+| 1 | Data Owner navigates to Feedback Inbox | |
+| 2 | | System queries `feedback` table for all items with status `pending`, sorted by submission date (oldest first) |
+| 3 | | System displays inbox: list of pending items with submitter name, query strain, predicted species, suggested correction, description, submission date |
+| 4 | Data Owner clicks on a feedback item to view details | |
+| 5 | | System displays full feedback detail with links to original retrieval result or database entry |
+| 6 | Data Owner reviews the feedback and decides: Accept, Reject, or Defer | |
+
+#### 6a. Accept Path
+| Step | Actor | System Response |
+|------|-------|-----------------|
+| 6a.1 | Data Owner clicks "Accept" | |
+| 6a.2 | | System updates feedback status to `accepted`, sets `reviewer_id` and `reviewed_at` |
+| 6a.3 | | System updates strain's species reference in `strains` table to the suggested species |
+| 6a.4 | | System flags affected Qdrant points for re-indexing (sets `is_active = false` or queues task) |
+| 6a.5 | | System writes audit log entry: `action="feedback_accepted"` |
+| 6a.6 | | System queues notification to feedback submitter |
+
+#### 6b. Reject Path
+| Step | Actor | System Response |
+|------|-------|-----------------|
+| 6b.1 | Data Owner clicks "Reject", enters review note explaining rejection | |
+| 6b.2 | | System validates review note is not empty |
+| 6b.3 | | System updates feedback status to `rejected`, stores review note |
+| 6b.4 | | System writes audit log entry: `action="feedback_rejected"` |
+| 6b.5 | | System queues notification to feedback submitter with rejection reason |
+
+#### 6c. Defer Path
+| Step | Actor | System Response |
+|------|-------|-----------------|
+| 6c.1 | Data Owner clicks "Defer" | |
+| 6c.2 | | System leaves feedback status as `pending` (no change) |
+| 6c.3 | | Feedback remains in inbox for future review |
+
+| Step | Actor | System Response |
+|------|-------|-----------------|
+| 7 | | System refreshes inbox, removing processed items |
+
+### Alternative Courses
+
+**AC.1: Bulk Accept/Reject** — At step 4, if Data Owner selects multiple items via checkboxes:
+
+| Step | Actor | System Response |
+|------|-------|-----------------|
+| AC.1.1 | Data Owner checks multiple feedback items, clicks "Bulk Accept" or "Bulk Reject" | |
+| AC.1.2 | | System applies the same action to all selected items |
+| AC.1.3 | | System returns `{updated: N}` count of processed items |
+| AC.1.4 | | System refreshes inbox |
+
+**AC.2: Filter Inbox** — At step 3, if Data Owner applies filters:
+
+| Step | Actor | System Response |
+|------|-------|-----------------|
+| AC.2.1 | Data Owner selects filter: by submitter, species, date range, or status | |
+| AC.2.2 | | System queries `feedback` table with applied filters |
+| AC.2.3 | | System displays filtered results |
+
+### Exceptions
+
+**EX.1: Last Data Owner Demotion** — At any step, if Data Owner is the last `owner` and tries to demote themselves (applicable only if feedback review triggers role change validation):
+
+| Step | Actor | System Response |
+|------|-------|-----------------|
+| EX.1.1 | | System returns 422 Unprocessable Entity: `{"detail": "Cannot remove last Data Owner."}` |
+| **Final state:** Action blocked; at least one Data Owner must exist. | | |
+
+**EX.2: Referenced Entity Deleted** — At step 5, if the original retrieval result or image was deleted since feedback was submitted:
+
+| Step | Actor | System Response |
+|------|-------|-----------------|
+| EX.2.1 | | System displays feedback detail with warning: "Original result/image no longer available." |
+| EX.2.2 | | Data Owner can still accept/reject based on remaining information |
+| **Final state:** Feedback review continues with degraded context. | | |
+
+**EX.3: Strain Update Conflict** — At step 6a.3, if the strain was modified by another Data Owner concurrently:
+
+| Step | Actor | System Response |
+|------|-------|-----------------|
+| EX.3.1 | | System returns 409 Conflict: `{"detail": "Strain was modified by another user. Reload and try again."}` |
+| **Final state:** Feedback not accepted; Data Owner reloads and retries. | | |
 
 ---
 
-### UC-SEG-03: Batch Segmentation Review
+## UC-DATA-02: Manage Species Data
 
-| **UC ID:** UC-SEG-03 | **Name:** Batch Segmentation Review |
-| **Created By:** Engineering Team | **Last Updated:** 2026-05-29 |
+| **Use Case ID:**        | UC-DATA-02 |
+| **Use Case Name:**      | Manage Species Data |
+| **Created By:**         | SRS Generator | **Last Updated By:** | SRS Generator |
+| **Date Created:**       | 2026-06-02 | **Date Last Updated:** | 2026-06-02 |
 
-| **Actor:** | Normal User, Data Owner |
-| **Description:** | User reviews segmentation results across an entire batch in a grid layout. Quick-approve or flag images for later review. Navigate between images efficiently. |
-| **Trigger:** | Batch processing completes all segmentations. |
-| **Preconditions:** | 1. Batch job completed. 2. Multiple images with segmentations ready. |
-| **Postconditions:** | 1. All approved images proceed to retrieval. 2. Flagged images deferred for later review. |
-| **Priority:** | Medium |
-| **Frequency:** | Per batch |
+| **Actor:**              | Data Owner (Primary) |
+| **Description:**        | A Data Owner performs CRUD operations on species, strains, and images in the database. This includes creating new species, uploading known-species reference images with direct species linkage, editing species metadata, archiving (soft-deleting) species/strains/images, restoring from archive, and renaming species (triggering bulk relabeling of all associated strains). All operations are logged in the audit trail. |
+| **Preconditions:**      | 1. Data Owner is authenticated with `owner` role. |
+| **Postconditions:**     | 1. Species, strain, or image records created/updated/archived as requested. 2. If species renamed: all associated strains relabeled; affected Qdrant points flagged for re-indexing. 3. If archived: records marked `is_archived = true`, excluded from queries and training. 4. Audit log entries created for all mutations. |
+| **Priority:**           | High |
+| **Frequency of Use:**   | 10–30 times per month |
+| **Includes:**           | UC-AUTH-02 (authentication) |
+| **Special Requirements:** | 1. Species names must be unique (case-insensitive). 2. Species rename triggers atomic relabeling of all strains. 3. Soft delete (archive) with restore capability. 4. Permanent delete available after archive. 5. Warning on archive: "N strains will be affected. Models must be retrained for changes to take effect." 6. Media type constrained to predefined set. |
+| **Assumptions:**        | 1. CRUD endpoints exist for `/species`, `/strains`, `/images`. 2. Media type enum is predefined and expandable. 3. Archive/trash management is distinct from active data views. |
+| **Notes and Issues:**   | **Implementation gap:** CRUD endpoints exist in API (`api/species.py`, `api/strains.py`, `api/images.py`) but are backed by in-memory `MemoryStore`. Species rename bulk relabeling and Qdrant flagging are not implemented. Archive/restore endpoints use `is_archived` flag but trash management UI does not exist. |
 
-#### Main Flow
+### Main Flow of Events (Create Species)
 
 | Step | Actor | System Response |
 |------|-------|-----------------|
-| 1 | | System displays batch review grid: thumbnail + bboxes per image |
-| 2 | User clicks checkmark on correctly segmented images | System marks as "approved" |
-| 3 | User clicks flag on images needing later review | System marks as "flagged" |
-| 4 | User clicks "Process Approved" | |
-| 5 | | System submits approved images to retrieval pipeline |
-| 6 | | System stores flagged images for later review |
+| 1 | Data Owner navigates to Data Management page | |
+| 2 | | System displays management interface: species list, strain list, image list, create/edit/archive controls |
+| 3 | Data Owner clicks "Create Species" | |
+| 4 | | System displays species creation form: name (required, unique), description (optional) |
+| 5 | Data Owner enters species name and optional description, clicks "Create" | |
+| 6 | | System validates species name uniqueness (case-insensitive) |
+| 7 | | System creates species record in `species` table |
+| 8 | | System writes audit log entry: `action="species_created"` |
+| 9 | | System returns 201 Created with species details |
+
+### Main Flow of Events (Upload Known-Species Image)
+
+| Step | Actor | System Response |
+|------|-------|-----------------|
+| 10 | Data Owner clicks "Add Image" on a strain or species | |
+| 11 | | System displays image upload form with: file dropzone, species dropdown, strain identifier, media dropdown, segmentation method selector |
+| 12 | Data Owner selects image, chooses species (known classification), enters strain, selects media, clicks "Upload and Index" | |
+| 13 | | System processes upload with direct species linkage (bypasses retrieval prediction) |
+| 14 | | System runs segmentation pipeline (same as UC-IMAGE-01) |
+| 15 | | System indexes segments directly into Qdrant with known species label |
+| 16 | | System creates image, strain, and segment records linked to species |
+| 17 | | System writes audit log entry: `action="image_indexed"` |
+| 18 | | System returns 201 Created with image and segment details |
+
+### Main Flow of Events (Edit/Archive)
+
+| Step | Actor | System Response |
+|------|-------|-----------------|
+| 19 | Data Owner selects a species, strain, or image and clicks "Edit" or "Archive" | |
+| 20 | | If Edit: system displays edit form with current values pre-filled |
+| 21 | Data Owner modifies fields and clicks "Save" | |
+| 22 | | System validates changes, updates record |
+| 23 | | If species renamed: system bulk-updates all associated strains' species reference (atomic transaction) |
+| 24 | | If archived: system sets `is_archived = true` and `archived_at` timestamp |
+| 25 | | System writes audit log entry |
+| 26 | | System returns 200 OK with updated record |
+
+### Alternative Courses
+
+**AC.1: Restore from Archive** — At step 19, if Data Owner navigates to Trash/Archive view:
+
+| Step | Actor | System Response |
+|------|-------|-----------------|
+| AC.1.1 | Data Owner navigates to Trash view | |
+| AC.1.2 | | System displays all archived items (species, strains, images with `is_archived = true`) |
+| AC.1.3 | Data Owner selects items and clicks "Restore" | |
+| AC.1.4 | | System sets `is_archived = false`, clears `archived_at` |
+| AC.1.5 | | System returns 200 OK; item reappears in active views |
+
+**AC.2: Permanent Delete** — At step AC.1.3, if Data Owner clicks "Permanently Delete":
+
+| Step | Actor | System Response |
+|------|-------|-----------------|
+| AC.2.1 | | System displays confirmation: "This action is irreversible. N associated records will be deleted. Continue?" |
+| AC.2.2 | Data Owner confirms | |
+| AC.2.3 | | System deletes records from database and removes associated files from storage |
+| AC.2.4 | | System deletes associated Qdrant points |
+| AC.2.5 | | System writes audit log entry |
+| AC.2.6 | | System returns 204 No Content |
+
+**AC.3: Empty Trash** — At step AC.1.2, if Data Owner clicks "Empty Trash":
+
+| Step | Actor | System Response |
+|------|-------|-----------------|
+| AC.3.1 | | System displays confirmation: "All N archived items will be permanently deleted. Continue?" |
+| AC.3.2 | Data Owner confirms | |
+| AC.3.3 | | System permanently deletes all archived items (as in AC.2) |
+| AC.3.4 | | System returns 204 No Content |
+
+### Exceptions
+
+**EX.1: Duplicate Species Name** — At step 6, if species name already exists (case-insensitive):
+
+| Step | Actor | System Response |
+|------|-------|-----------------|
+| EX.1.1 | | System returns 409 Conflict: `{"detail": "Species 'X' already exists."}` |
+| **Final state:** Data Owner stays on form; must use different name. | | |
+
+**EX.2: Rename with Foreign Strains** — At step 23, if species has foreign key dependencies that prevent rename:
+
+| Step | Actor | System Response |
+|------|-------|-----------------|
+| EX.2.1 | | System performs rename in atomic transaction |
+| EX.2.2 | | If any strain update fails, entire transaction rolls back |
+| EX.2.3 | | System returns 500 Internal Server Error with rollback confirmation |
+| **Final state:** No changes applied; Data Owner retries. | | |
+
+**EX.3: Unauthorized Access** — At step 1, if Researcher (not Data Owner) attempts to access management page:
+
+| Step | Actor | System Response |
+|------|-------|-----------------|
+| EX.3.1 | | System returns 403 Forbidden: `{"detail": "Data Owner role required."}` |
+| **Final state:** Researcher redirected to accessible pages. | | |
+
+**EX.4: Image Storage Full** — At step 13, if storage volume is at capacity:
+
+| Step | Actor | System Response |
+|------|-------|-----------------|
+| EX.4.1 | | System returns 507 Insufficient Storage: `{"detail": "Storage capacity exceeded. Contact administrator."}` |
+| **Final state:** Upload rejected; Data Owner informed. | | |
 
 ---
 
-## 11. Use Case Specifications — Retrieval
+## UC-TRAINING-01: Trigger Model Training
 
-### UC-RET-01: Retrieve Species
+| **Use Case ID:**        | UC-TRAINING-01 |
+| **Use Case Name:**      | Trigger Model Training |
+| **Created By:**         | SRS Generator | **Last Updated By:** | SRS Generator |
+| **Date Created:**       | 2026-06-02 | **Date Last Updated:** | 2026-06-02 |
 
-| **UC ID:** UC-RET-01 | **Name:** Retrieve Species |
-| **Created By:** Engineering Team | **Last Updated:** 2026-05-29 |
+| **Actor:**              | Data Owner (Primary), Celery Worker (Secondary) |
+| **Description:**        | A Data Owner triggers model re-indexing or fine-tuning to incorporate new data, corrections, and archive changes into the Qdrant index and/or deep learning models. The Data Owner reviews pre-flight summary (changes since last training), chooses training type, monitors progress in real-time, reviews evaluation metrics, and deploys or rolls back the trained model. Only one training job can run at a time. |
+| **Preconditions:**      | 1. Data Owner is authenticated with `owner` role. 2. Qdrant and PostgreSQL are operational. 3. No other training job is currently running. 4. At least one change exists since last training (new data, archived data, or accepted feedback). |
+| **Postconditions:**     | 1. Training job record created in `training_jobs` table. 2. If re-index: Qdrant points updated with re-extracted features. 3. If fine-tune: model weights updated, evaluation metrics stored. 4. If deploy: new model version active for queries. 5. Audit log entry created. |
+| **Priority:**           | Medium |
+| **Frequency of Use:**   | 2–8 times per month |
+| **Includes:**           | UC-AUTH-02 (authentication) |
+| **Special Requirements:** | 1. Only one training job can run at a time. 2. Training types: `reindex` (re-extract + upsert to Qdrant), `finetune` (train neural network weights), `full_retrain` (both). 3. Real-time progress: stage, epoch, loss, accuracy, ETA. 4. Staged deployment: Data Owner reviews metrics before deploying. 5. Rollback to previous model version supported. 6. Cancel: graceful shutdown at end of current epoch. |
+| **Assumptions:**        | 1. Feature extraction and fine-tuning scripts exist in fungal-cv-qdrant and are callable via backend. 2. Celery worker has access to GPU resources for fine-tuning. 3. Model checkpoints are versioned and stored. |
+| **Notes and Issues:**   | **Implementation gap:** Training endpoints exist in `api/training.py` but return mock/stub data. Celery tasks in `tasks/training.py` are stubs. Real Qdrant re-indexing pipeline exists in `qdrant/operations.py` but is not wired to the training trigger. Progress tracking, model versioning, and rollback are not implemented. Real-time progress streaming is not implemented. |
 
-| **Actor:** | Normal User / Data Owner |
-| **Description:** | Given segmented colony images from a strain, extract visual features, query Qdrant KNN, aggregate results across segments and media, and return ranked species predictions with confidence scores and neighbor details. Full pipeline: upload → segment → extract → query → aggregate → rank. |
-| **Trigger:** | User clicks "Process Retrieval" after confirming segmentation. |
-| **Preconditions:** | 1. User authenticated. 2. Segmentation completed with ≥ 1 segment. 3. Qdrant collection populated. 4. Feature extractor weights available. |
-| **Postconditions:** | 1. Retrieval job completed. 2. Ranked results saved to DB. 3. Results displayed to user with scores and neighbor details. |
-| **Priority:** | High |
-| **Frequency:** | 10-100/day |
-| **Includes:** | UC-IMG-01, UC-SEG-01 |
-| **Special Requirements:** | Single-image query ≤ 5 seconds; multi-image batch parallel via Celery groups; configurable k (1-20), aggregation (weighted/uni/manual_weighted), environment strategy (E1/E2/E3/E4). |
-
-#### Main Flow
-
-| Step | Actor | System Response |
-|------|-------|-----------------|
-| 1 | User clicks "Process Retrieval" on the segmentation review screen | |
-| 2 | | System creates retrieval_job (type: single or batch, status: pending) |
-| 3 | | System dispatches Celery retrieval task { image_id, k, aggregation, env_strategy } |
-| 4 | | For each segment: extracts features (EfficientNetB1_finetuned, 1280-dim) |
-| 5 | | Queries Qdrant: KNN search with specified k, cosine distance |
-| 6 | | Applies environment strategy filter (E1 default: match query medium) |
-| 7 | | Filters sibling segments (same parent_item_id) from results |
-| 8 | | Aggregates neighbor results across segments and media using configured strategy |
-| 9 | | Ranks species by aggregated score, selects top-5 |
-| 10 | | Saves retrieval_results and retrieval_neighbors to DB |
-| 11 | | Updates job status to "completed" |
-| 12 | | Client polls job status; on completion: redirects to UC-VIZ-01 results view |
-
-#### Alternative Course: Multi-Media Query
+### Main Flow of Events
 
 | Step | Actor | System Response |
 |------|-------|-----------------|
-| AC.1 | User uploads same strain on multiple media (MEA + CYA) | |
-| AC.2 | | System groups images by strain; processes each independently |
-| AC.3 | | Aggregation step 8 combines all neighbors from all images of the strain |
-| **Resume:** Single ranked list for the strain across all media |
+| 1 | Data Owner navigates to Training Dashboard | |
+| 2 | | System displays training status: current model version, last training date, strains in training set, latest F1 score, training history table |
+| 3 | | System displays pre-flight summary: "N strains added, M archived, P feedback accepted since last training. Estimated time: ~X hours." |
+| 4 | Data Owner selects training type (re-index / fine-tune / full retrain), reviews pre-flight summary | |
+| 5 | Data Owner clicks "Start Training" | |
+| 6 | | System validates no other training job is running |
+| 7 | | System creates training job record in `training_jobs` table with status `pending`, stores `changes_since_last` |
+| 8 | | System dispatches training task to Celery worker |
+| 9 | | System returns 202 Accepted with `{job_id, status, estimated_completion}` |
+| 10 | | Celery Worker executes training pipeline: data preparation → feature extraction → (if fine-tune: training epochs) → evaluation → Qdrant indexing |
+| 11 | Data Owner monitors progress via dashboard (polling or push updates) | |
+| 12 | | System updates job progress in `training_jobs` table: current stage, epoch, loss, accuracy, ETA |
+| 13 | | When complete: System updates job status to `completed`, stores `model_version`, evaluation metrics |
+| 14 | | System displays completion notification: "Training complete. Model vX ready for review." |
+| 15 | Data Owner reviews evaluation metrics (F1 score, per-class accuracy, loss curves) | |
+| 16 | Data Owner clicks "Deploy Model" | |
+| 17 | | System toggles `is_deployed = true` on the new model |
+| 18 | | System sets previous model `is_deployed = false` or retains as rollback target |
+| 19 | | System activates new Qdrant collection/index for queries |
+| 20 | | System writes audit log entry: `action="model_deployed"` |
+| 21 | | System returns 200 OK: `{status: "deployed", model_version: "vX"}` |
 
-#### Exceptions
+### Alternative Courses
 
-**EX.1: Feature Extraction Failure**
+**AC.1: Cancel Training** — At step 11, if Data Owner clicks "Cancel" while job is running:
 
 | Step | Actor | System Response |
 |------|-------|-----------------|
-| EX.1.1 | | System retries extraction up to 3 times |
-| EX.1.2 | | If all retries fail, marks segment as failed |
-| EX.1.3 | | If all segments fail, returns error to user with diagnostics |
-| **Final state:** Partial or no results |
+| AC.1.1 | Data Owner clicks "Cancel Training" | |
+| AC.1.2 | | System sends cancel signal to Celery worker |
+| AC.1.3 | | Celery Worker finishes current epoch/stage, then terminates gracefully |
+| AC.1.4 | | System updates job status to `cancelled` |
+| AC.1.5 | | System writes audit log entry: `action="training_cancelled"` |
+| AC.1.6 | | System returns 200 OK with cancelled status |
 
-**EX.2: Zero Qdrant Results**
+**AC.2: Rollback Model** — At step 16, if Data Owner decides not to deploy or wants to revert:
 
 | Step | Actor | System Response |
 |------|-------|-----------------|
-| EX.2.1 | | System returns empty rankings with note: "No matching species found." |
-| EX.2.2 | | System suggests trying E2 (all media) or reducing k |
-| **Final state:** Empty results display |
+| AC.2.1 | Data Owner clicks "Rollback" | |
+| AC.2.2 | | System identifies previous deployed model version |
+| AC.2.3 | | System displays confirmation: "Revert to model vX-1? Current model vX will be deactivated." |
+| AC.2.4 | Data Owner confirms | |
+| AC.2.5 | | System activates previous model version for queries |
+| AC.2.6 | | System writes audit log entry: `action="model_rolled_back"` |
+| AC.2.7 | | System returns 200 OK: `{status: "rolled_back", active_version: "vX-1"}` |
+
+**AC.3: Training Triggered from Feedback Acceptance** — At step 1, alternative trigger path (indirect):
+
+| Step | Actor | System Response |
+|------|-------|-----------------|
+| AC.3.1 | | After accepting feedback in UC-FEEDBACK-02, system suggests: "N feedback items accepted. Trigger re-indexing?" |
+| AC.3.2 | Data Owner navigates to Training page from feedback context | |
+| AC.3.3 | | Continue from step 3 of main flow with pre-filled training type `reindex` |
+
+### Exceptions
+
+**EX.1: Training Already Running** — At step 6, if another job is in progress:
+
+| Step | Actor | System Response |
+|------|-------|-----------------|
+| EX.1.1 | | System returns 409 Conflict: `{"detail": "A training job is already in progress. Job ID: {id}. Monitor or cancel it first."}` |
+| **Final state:** Data Owner sees current job status; can cancel or wait. | | |
+
+**EX.2: Training Job Failure** — At step 12, if Celery worker reports job failure:
+
+| Step | Actor | System Response |
+|------|-------|-----------------|
+| EX.2.1 | | System updates job status to `failed`, stores error message |
+| EX.2.2 | | System writes audit log entry: `action="training_failed"` |
+| EX.2.3 | | System notifies Data Owner via dashboard and (if configured) email |
+| **Final state:** Failed job logged; Data Owner may investigate logs and retry. | | |
+
+**EX.3: Celery Worker Unavailable** — At step 8, if Celery broker (Redis) is unreachable:
+
+| Step | Actor | System Response |
+|------|-------|-----------------|
+| EX.3.1 | | System updates job status to `failed` with error "Celery broker unavailable" |
+| EX.3.2 | | System returns 503 Service Unavailable: `{"detail": "Training service unavailable. Check Celery/Redis status."}` |
+| **Final state:** Job not started; Data Owner retries after service restoration. | | |
+
+**EX.4: Insufficient GPU Resources** — At step 10, if fine-tune is requested but no GPU is available:
+
+| Step | Actor | System Response |
+|------|-------|-----------------|
+| EX.4.1 | | System returns 400 Bad Request: `{"detail": "GPU not available. Fine-tuning requires GPU. Use re-index only or provision GPU instance."}` |
+| **Final state:** Data Owner selects re-index or provisions GPU. | | |
 
 ---
 
-## 12. Use Case Specifications — Visualization
+## 4. External Interface Requirements
 
-### UC-VIZ-01: View Ranked Results
+### 4.1 User Interfaces
+- **Web Application:** React 19 SPA with Tailwind CSS 4.2 + shadcn/ui component library
+- **Responsive Design:** Desktop-first; minimum viewport 1024×768 px
+- **Authentication:** Login/register pages; authenticated pages protected via React Router guards
+- **Image Upload:** Drag-and-drop file zone with preview; bounding box overlay editor with draggable/resizable handles
+- **Results Display:** Ranked species list with confidence scores, expandable neighbor details with thumbnails
+- **Dashboard:** Charts rendered with Recharts 2.15/D3 7.9 (pie chart, bar chart, timeline)
+- **Admin Pages:** Species/strain CRUD tables, feedback inbox with filter/sort/bulk actions, training dashboard with progress bar
 
-| **UC ID:** UC-VIZ-01 | **Name:** View Ranked Results |
-| **Created By:** Engineering Team | **Last Updated:** 2026-05-29 |
+### 4.2 API Interfaces
 
-| **Actor:** | Normal User, Data Owner |
-| **Description:** | User views retrieval results as a ranked table with species name, confidence score, color-coded confidence bar. Clicks a species row to expand per-media KNN neighbor details with scrollable thumbnails and similarity scores. Sortable by rank, score, or species. Exportable as CSV. |
-| **Trigger:** | Retrieval job completes; user redirected to `/results/{job_id}`. |
-| **Preconditions:** | 1. Retrieval job completed. 2. Results exist in DB. |
-| **Postconditions:** | 1. User views results. 2. May proceed to submit feedback (UC-FB-01). |
-| **Priority:** | High |
-| **Frequency:** | Per query |
+**Base URL:** `http://{host}:8000/api/v1`
 
-#### Main Flow
+**Authentication:** Bearer JWT token in `Authorization` header for protected endpoints.
 
-| Step | Actor | System Response |
-|------|-------|-----------------|
-| 1 | | System loads results page: GET `/api/v1/retrieval/jobs/{id}/results` |
-| 2 | | System renders ranked table: rank, species, score, color-coded bar |
-| 3 | User clicks species row to expand | |
-| 4 | | System renders per-media neighbor groups: horizontal scrollable thumbnails |
-| 5 | | Each thumbnail shows: neighbor strain, species, similarity score |
-| 6 | User clicks a thumbnail | System opens full-size image in lightbox |
-| 7 | User clicks column header (Rank, Score, Species) | System re-sorts table |
-| 8 | User clicks "Export CSV" | System downloads results CSV |
+**Response Format:** JSON. Errors follow RFC 7807 Problem Details:
+```json
+{"type": "...", "title": "...", "status": 400, "detail": "...", "instance": "/path"}
+```
 
----
+**Key Endpoint Groups:**
+- `POST /auth/register`, `POST /auth/login`, `POST /auth/refresh`, `POST /auth/logout`, `GET /auth/me`
+- `POST /images/upload`, `GET /images/{id}`, `PATCH /images/{id}/segments`, `GET /images/{id}/segments/{idx}/crop`
+- `POST /retrieval/query`, `GET /retrieval/jobs/{id}`, `GET /retrieval/jobs/{id}/results`, `POST /retrieval/query-sync`
+- `GET/POST /species`, `GET/PATCH/DELETE /species/{id}`
+- `GET/POST /strains`, `GET/PATCH/DELETE /strains/{id}`
+- `POST /feedback`, `GET /feedback`, `GET /feedback/inbox`, `PATCH /feedback/{id}`, `POST /feedback/batch`
+- `GET /training/status`, `GET/POST /training/jobs`, `POST /training/trigger`, `POST /training/jobs/{id}/deploy`, `POST /training/rollback`
+- `GET /dashboard/stats`, `GET /dashboard/charts/*`, `GET /dashboard/qdrant-status`
+- `GET /admin/users`, `PATCH /admin/users/{id}/role`, `GET /admin/audit-log`
 
-### UC-VIZ-02: KNN Graph Visualization (Phase 2)
+**Pagination:** All list endpoints support `offset` and `limit` query parameters. Response includes `{items[], total, offset, limit}`.
 
-| **UC ID:** UC-VIZ-02 | **Name:** KNN Graph Visualization |
-| **Created By:** Engineering Team | **Last Updated:** 2026-05-29 |
+### 4.3 Hardware Interfaces
+- **Image input:** Digital camera or scanner producing JPEG/PNG/TIFF at min 256×256 px
+- **GPU (optional):** NVIDIA GPU with CUDA for model fine-tuning (Vast.ai or local)
+- **Storage:** Sufficient disk for `Dataset/` directory (uploaded images, prepared images, segment crops)
 
-| **Actor:** | Normal User, Data Owner |
-| **Description:** | Interactive force-directed graph showing query strain at center, neighbor nodes colored by species, edges weighted by cosine similarity. Configurable k slider and weighted/uni toggle with real-time graph updates. Pan, zoom, hover, and click interactions. |
-| **Trigger:** | User switches to "Graph View" tab on the results page. |
-| **Preconditions:** | 1. Retrieval results available. 2. Phase 2 feature implemented. |
-| **Postconditions:** | User explores retrieval neighborhood visually. |
-| **Priority:** | Medium (Phase 2) |
-| **Special Requirements:** | D3.js force-directed layout; species-based node colors; edge thickness ∝ similarity; responsive canvas. |
-
-#### Main Flow
-
-| Step | Actor | System Response |
-|------|-------|-----------------|
-| 1 | User clicks "Graph View" tab | |
-| 2 | | System renders force-directed graph: query node center, neighbor nodes around |
-| 3 | | Nodes colored by species, edges weighted by similarity |
-| 4 | User adjusts k slider (1-20) | System re-queries with new k, updates graph in real-time |
-| 5 | User toggles weighted/uni | System recalculates aggregation, updates edge widths |
-| 6 | User hovers over node | System shows tooltip: strain + species + similarity |
-| 7 | User clicks node | System expands neighbor detail panel |
-| 8 | User pans/zooms | System re-renders viewport |
+### 4.4 Software Interfaces
+- **PostgreSQL 16:** Relational data store (users, species, strains, images, segments, retrieval_jobs, feedback, training_jobs, audit_log)
+- **Qdrant:** Vector similarity search engine (cosine distance, 13 named vectors per point)
+- **Redis 7:** Celery message broker and result backend
+- **Celery 5.5:** Asynchronous task queue for training, batch operations
+- **Google Drive (rclone):** Optional remote dataset storage for sync import/export
 
 ---
 
-## 13. Use Case Specifications — Data Indexing
+## 5. Non-Functional Requirements
 
-### UC-DATA-01: Index New Data
+### 5.1 Performance
+- **PER-01:** Retrieval query response time: <5 seconds for single-image query (feature extraction + Qdrant search + aggregation)
+- **PER-02:** Image upload + segmentation: <30 seconds for single image (<10 MB)
+- **PER-03:** Page load time: <2 seconds for dashboard and list views (with pagination)
+- **PER-04:** Concurrent users: support 100 concurrent researchers with acceptable performance
+- **PER-05:** Training job: re-index <2 hours for 10,000 images; fine-tune <24 hours on single GPU
 
-| **UC ID:** UC-DATA-01 | **Name:** Index New Data |
-| **Created By:** Engineering Team | **Last Updated:** 2026-05-29 |
+### 5.2 Security
+- **SEC-01:** All passwords stored as bcrypt hashes (cost factor 12)
+- **SEC-02:** JWT access tokens expire after 30 minutes; refresh tokens after 7 days (rotated on use)
+- **SEC-03:** All API endpoints enforce role-based access control (RBAC)
+- **SEC-04:** Rate limiting on login endpoint: 5 attempts per email per 15 minutes
+- **SEC-05:** HTTPS required for all production traffic
+- **SEC-06:** Input validation on all user-supplied data (Pydantic backend, Zod frontend)
+- **SEC-07:** Audit log captures all mutations with user ID, action, entity type, timestamp, IP
+- **SEC-08:** CORS configured to allow only frontend origin(s)
 
-| **Actor:** | Data Owner |
-| **Description:** | Data Owner uploads strain images of a known species for indexing into the Qdrant reference database. Reuses the upload, segmentation, and retrieval UI from UC-RET-01. Adds a species dropdown for label assignment. All 13 named vectors are extracted and upserted to Qdrant with species/strain/media payload. |
-| **Trigger:** | Data Owner clicks "Index New Data" on the upload page. |
-| **Preconditions:** | 1. Data Owner authenticated. 2. Target species exists in database. |
-| **Postconditions:** | 1. Images and segments saved. 2. Feature vectors upserted to Qdrant. 3. qdrant_index_state updated. 4. Species strain/image counts updated in dashboard. |
-| **Priority:** | High |
-| **Frequency:** | Weekly (as new reference data becomes available) |
-| **Extends:** | UC-RET-01 (reuses upload, segmentation, review workflows) |
+### 5.3 Availability
+- **AVL-01:** System uptime target: 99.5% during business hours (monitoring hours not 24/7)
+- **AVL-02:** Graceful degradation: retrieval unavailable if Qdrant down; database browsing unavailable if PostgreSQL down
+- **AVL-03:** Training jobs are non-critical — system remains operational for queries during training
 
-#### Main Flow
+### 5.4 Usability
+- **USB-01:** Upload workflow: ≤3 clicks from login to species results (upload → review segments → query results)
+- **USB-02:** Bounding box editing: intuitive drag/resize with visual feedback
+- **USB-03:** Result display: top-5 species ranked with clear confidence indicators
+- **USB-04:** Error messages: human-readable, actionable (not raw stack traces)
 
-| Step | Actor | System Response |
-|------|-------|-----------------|
-| 1 | Data Owner clicks "Index New Data" mode on Upload page | |
-| 2 | Data Owner uploads image(s), enters strain identifier, selects medium | |
-| 3 | Data Owner selects target species from dropdown | |
-| 4 | | System reuses segmentation pipeline (UC-SEG-01) |
-| 5 | Data Owner reviews and edits bounding boxes (UC-SEG-02) | |
-| 6 | Data Owner clicks "Index Data" | |
-| 7 | | System extracts features for all 13 named vectors per segment |
-| 8 | | System upserts Qdrant PointStruct with all named vectors + payload (species, strain, media, source, parent_item_id) |
-| 9 | | System creates image, segment, and qdrant_index_state records in DB |
-| 10 | | System logs "index_data" to audit_log |
-| 11 | | System displays confirmation: "N segments indexed for species X." |
+### 5.5 Maintainability
+- **MNT-01:** API versioned at `/api/v1/` with backward compatibility
+- **MNT-02:** Database migrations via Alembic, version-controlled
+- **MNT-03:** Structured logging with request IDs for traceability
 
-#### Alternative Course: Batch Indexing
-
-| Step | Actor | System Response |
-|------|-------|-----------------|
-| AC.1 | Data Owner uploads batch folder with species column in template.json | |
-| AC.2 | | System indexes all images in parallel via Celery batch workers |
-| **Resume:** Per-strain confirmation at batch completion |
-
----
-
-## 14. Use Case Specifications — Data Management (CRUD)
-
-### UC-DATA-02: Create Species
-
-| **UC ID:** UC-DATA-02 | **Name:** Create Species |
-| **Created By:** Engineering Team | **Last Updated:** 2026-05-29 |
-
-| **Actor:** | Data Owner |
-| **Description:** | Data Owner defines a new fungal species in the taxonomy. Species names must be unique (case-insensitive). |
-| **Trigger:** | Data Owner clicks "Add Species" on the Database page. |
-| **Preconditions:** | 1. Data Owner authenticated. 2. Species name not already in use. |
-| **Postconditions:** | 1. Species record created. 2. Available in species dropdowns for indexing and feedback. |
-| **Priority:** | High |
-| **Frequency:** | Infrequent (taxonomy updates) |
-
-#### Main Flow
-
-| Step | Actor | System Response |
-|------|-------|-----------------|
-| 1 | Data Owner opens Database page, clicks "Add Species" | |
-| 2 | | System opens creation modal |
-| 3 | Data Owner enters species name, optional description | |
-| 4 | Data Owner clicks "Create" | |
-| 5 | | System validates name uniqueness (case-insensitive) |
-| 6 | | System creates species record |
-| 7 | | System logs "create_species" to audit_log |
-| 8 | | System refreshes species list, shows new species |
-
-#### Exceptions
-
-**EX.1: Duplicate Name**
-
-| Step | Actor | System Response |
-|------|-------|-----------------|
-| EX.1.1 | | System displays "A species with this name already exists." |
-| **Final state:** Modal preserved with field highlighted |
+### 5.6 Data Integrity
+- **DIN-01:** Species rename must be atomic (all strains update or none)
+- **DIN-02:** Soft delete preserves data; permanent delete requires confirmation
+- **DIN-03:** Audit log entries are append-only, never modified or deleted
 
 ---
 
-### UC-DATA-03: Rename Species
+## 6. Appendix
 
-| **UC ID:** UC-DATA-03 | **Name:** Rename Species |
-| **Created By:** Engineering Team | **Last Updated:** 2026-05-29 |
+### 6.1 Glossary
 
-| **Actor:** | Data Owner |
-| **Description:** | Data Owner renames a species (taxonomic update). All strains under that species are atomically relabeled. All affected Qdrant points are flagged for re-indexing. Warning shown before execution. |
-| **Trigger:** | Data Owner clicks "Edit" on a species row, changes name, saves. |
-| **Preconditions:** | 1. Data Owner authenticated. 2. New name is unique. |
-| **Postconditions:** | 1. Species name updated. 2. All strain records relabeled (atomic). 3. Affected qdrant_index_state rows marked is_active=FALSE. 4. Data Owner prompted to re-index. |
-| **Priority:** | Medium |
-| **Frequency:** | Rare (taxonomic corrections) |
-
-#### Main Flow
-
-| Step | Actor | System Response |
-|------|-------|-----------------|
-| 1 | Data Owner opens species detail, clicks "Edit" | |
-| 2 | Data Owner enters new name | |
-| 3 | Data Owner clicks "Save" | |
-| 4 | | System displays warning: "Renaming will relabel N strains and require re-indexing. Continue?" |
-| 5 | Data Owner confirms | |
-| 6 | | System atomically updates species name + all strain records within transaction |
-| 7 | | System marks affected qdrant_index_state rows as is_active=FALSE |
-| 8 | | System logs "rename_species" to audit_log |
-| 9 | | System shows: "Species renamed. N strains updated. Trigger re-index to apply changes." |
-| 10 | | System provides link to Training page (UC-TRN-01) |
-
----
-
-### UC-DATA-04: Browse Database
-
-| **UC ID:** UC-DATA-04 | **Name:** Browse Database |
-| **Created By:** Engineering Team | **Last Updated:** 2026-05-29 |
-
-| **Actor:** | Normal User (read), Data Owner (read/write) |
-| **Description:** | User browses and filters the database of species, strains, and images. Overview dashboard shows aggregate statistics with charts. Data Owner sees additional action menus (edit, archive, report issue). |
-| **Trigger:** | User navigates to `/database` or `/dashboard`. |
-| **Preconditions:** | 1. User authenticated. 2. Database contains records. |
-| **Postconditions:** | User views filtered results. May drill into detail views. |
-| **Priority:** | High |
-| **Frequency:** | Daily |
-
-#### Main Flow
-
-| Step | Actor | System Response |
-|------|-------|-----------------|
-| 1 | User navigates to `/dashboard` or `/database` | |
-| 2 | | System loads overview stats: total images, strains, species, media types |
-| 3 | | System renders pie chart (species distribution), bar chart (media distribution), timeline chart |
-| 4 | User applies filters: species dropdown, strain search, media checkboxes, date range, data source | |
-| 5 | | System queries with filters, renders paginated data table |
-| 6 | User clicks a strain row | System navigates to strain detail: images, segments, metadata |
-| 7 | User clicks a species row | System navigates to species detail: strain list, image count |
-| 8 | (Data Owner) User clicks action menu on a row | System shows: Edit, Archive, Report Issue buttons |
-
----
-
-### UC-DATA-05: Archive and Restore Data
-
-| **UC ID:** UC-DATA-05 | **Name:** Archive and Restore Data |
-| **Created By:** Engineering Team | **Last Updated:** 2026-05-29 |
-
-| **Actor:** | Data Owner |
-| **Description:** | Data Owner archives (soft-deletes) species, strains, or images. Archived data is excluded from Qdrant queries and training but preserved with metadata. Data can be restored to active status or permanently deleted from trash. |
-| **Trigger:** | Data Owner clicks "Archive" on a database entry. |
-| **Preconditions:** | 1. Data Owner authenticated. 2. Entity is active (not already archived). |
-| **Postconditions:** | 1. `is_archived=TRUE`, `archived_at` set. 2. Qdrant points marked inactive. 3. Entity visible in trash. |
-| **Priority:** | High |
-| **Frequency:** | Occasional |
-
-#### Main Flow
-
-| Step | Actor | System Response |
-|------|-------|-----------------|
-| 1 | Data Owner clicks "Archive" on a strain | |
-| 2 | | System displays warning: "Archiving N strains. Models must be retrained for changes to take effect. [Continue] [Cancel]" |
-| 3 | Data Owner clicks "Continue" | |
-| 4 | | System sets is_archived=TRUE, archived_at=now() on strain and all child images/segments |
-| 5 | | System updates qdrant_index_state: is_active=FALSE for all affected segments |
-| 6 | | System deletes Qdrant points for archived segments |
-| 7 | | System logs "archive_strain" to audit_log |
-| 8 | | System refreshes database view, entity moved to trash |
-
-#### Alternative Course: Restore from Trash
-
-| Step | Actor | System Response |
-|------|-------|-----------------|
-| AC.1 | Data Owner navigates to Trash view | |
-| AC.2 | Data Owner clicks "Restore" on an archived entity | |
-| AC.3 | | System sets is_archived=FALSE, archived_at=NULL |
-| AC.4 | | System displays: "Entity restored. Re-index to make it available for queries." |
-| **Resume:** Data Owner may trigger re-index (UC-TRN-01) |
-
-#### Alternative Course: Permanent Delete
-
-| Step | Actor | System Response |
-|------|-------|-----------------|
-| AC.1 | Data Owner clicks "Delete Permanently" on trash item | |
-| AC.2 | Data Owner confirms in modal | |
-| AC.3 | | System deletes DB records (species, strains, images, segments) |
-| AC.4 | | System deletes image files from Dataset/ storage |
-| AC.5 | | System deletes Qdrant points |
-| AC.6 | | System logs "permanent_delete" to audit_log |
-
----
-
-## 15. Use Case Specifications — Feedback Pipeline
-
-### UC-FB-01: Submit Feedback (Query Result)
-
-| **UC ID:** UC-FB-01 | **Name:** Submit Feedback (Query Result) |
-| **Created By:** Engineering Team | **Last Updated:** 2026-05-29 |
-
-| **Actor:** | Normal User, Data Owner |
-| **Description:** | User flags an incorrect species prediction from the retrieval results view. Submits the correct species (from dropdown or "other" free text) with a required description. |
-| **Trigger:** | User clicks "Report Incorrect" on a result row. |
-| **Preconditions:** | 1. User authenticated. 2. Retrieval results displayed. |
-| **Postconditions:** | 1. Feedback record created (status: pending, source: query_result). 2. Data Owner notified. |
-| **Priority:** | High |
-| **Frequency:** | Several per day |
-
-#### Main Flow
-
-| Step | Actor | System Response |
-|------|-------|-----------------|
-| 1 | User clicks "Report Incorrect" on a species row | |
-| 2 | | System opens feedback modal: predicted species (auto-filled), correct species dropdown, description field |
-| 3 | User selects correct species from dropdown (or "other" + free text) | |
-| 4 | User enters description explaining the correction | |
-| 5 | User optionally uploads supporting image | |
-| 6 | User clicks "Submit" | |
-| 7 | | System validates description is non-empty |
-| 8 | | System creates feedback record (source=query_result, status=pending) |
-| 9 | | System notifies Data Owner via in-app bell |
-| 10 | | System shows toast: "Feedback submitted. A Data Owner will review it." |
-
-#### Exceptions
-
-**EX.1: Empty Description**
-
-| Step | Actor | System Response |
-|------|-------|-----------------|
-| EX.1.1 | | System highlights description field: "A description is required." |
-| **Final state:** Modal preserved |
-
----
-
-### UC-FB-02: Submit Feedback (Database Entry)
-
-| **UC ID:** UC-FB-02 | **Name:** Submit Feedback (Database Entry) |
-| **Created By:** Engineering Team | **Last Updated:** 2026-05-29 |
-
-| **Actor:** | Normal User, Data Owner |
-| **Description:** | User flags an issue with an existing database entry (species, strain, or image) from the database browser, not from a retrieval result. Same feedback form, tracked with source=database_review. |
-| **Trigger:** | User clicks "Report Issue" on a database entry detail view. |
-| **Preconditions:** | 1. User authenticated. 2. Viewing database entry detail. |
-| **Postconditions:** | 1. Feedback record created (source: database_review). |
-| **Priority:** | Medium |
-| **Frequency:** | Occasional |
-
-#### Main Flow
-
-| Step | Actor | System Response |
-|------|-------|-----------------|
-| 1 | User clicks "Report Issue" on a strain/image detail | |
-| 2 | | System opens feedback form pre-populated with current species |
-| 3 | User selects suggested correction, enters description | |
-| 4 | User clicks "Submit" | |
-| 5 | | System creates feedback record (source=database_review) |
-| 6 | | System shows confirmation |
-
----
-
-### UC-FB-03: Review and Process Feedback
-
-| **UC ID:** UC-FB-03 | **Name:** Review and Process Feedback |
-| **Created By:** Engineering Team | **Last Updated:** 2026-05-29 |
-
-| **Actor:** | Data Owner |
-| **Description:** | Data Owner reviews pending feedback items in the inbox. Each item shows submitter, query strain, predicted vs suggested, description, and link to original results. Data Owner accepts (corrects database, triggers re-index), rejects (records reason, no DB change), or defers (stays pending). Supports bulk actions. |
-| **Trigger:** | Data Owner navigates to `/feedback/inbox`. |
-| **Preconditions:** | 1. Data Owner authenticated. 2. Pending feedback exists. |
-| **Postconditions:** | 1. If accepted: strain updated, Qdrant points flagged, re-index queued, submitter notified. 2. If rejected: reason recorded, submitter notified. 3. Audit log entry created. |
-| **Priority:** | High |
-| **Frequency:** | Weekly |
-
-#### Main Flow (Accept)
-
-| Step | Actor | System Response |
-|------|-------|-----------------|
-| 1 | | System displays pending feedback list (newest first) |
-| 2 | Data Owner clicks an item, reviews details | |
-| 3 | Data Owner clicks "Accept" | System opens modal with optional review note |
-| 4 | Data Owner enters note, clicks "Confirm Accept" | |
-| 5 | | System updates strain.species_id → suggested species in transaction |
-| 6 | | System marks affected qdrant_index_state rows: is_active=FALSE |
-| 7 | | System queues Celery re-index task for affected segments |
-| 8 | | System updates feedback: status=accepted, reviewed_at=now(), reviewer_id, review_note |
-| 9 | | System logs "accept_feedback" to audit_log |
-| 10 | | System creates in-app notification for submitter |
-| 11 | | System removes item from inbox, updates statistics |
-
-#### Alternative Course: Reject
-
-| Step | Actor | System Response |
-|------|-------|-----------------|
-| AC.1 | Data Owner clicks "Reject" | System opens modal with required review note |
-| AC.2 | Data Owner enters reason, clicks "Confirm Reject" | |
-| AC.3 | | System updates feedback: status=rejected, review_note set |
-| AC.4 | | System notifies submitter with rejection reason |
-| **Final state:** No database changes; submitter informed |
-
-#### Alternative Course: Defer
-
-| Step | Actor | System Response |
-|------|-------|-----------------|
-| AC.1 | Data Owner clicks "Defer" | |
-| AC.2 | | System keeps status=pending, adds optional note |
-| **Final state:** Item remains in inbox for later review |
-
-#### Alternative Course: Bulk Accept
-
-| Step | Actor | System Response |
-|------|-------|-----------------|
-| AC.1 | Data Owner selects multiple items via checkboxes | |
-| AC.2 | Data Owner clicks "Accept Selected" | |
-| AC.3 | | System processes each feedback atomically; skips items with conflicting species assignments |
-| AC.4 | | System reports: "N accepted, M skipped (species conflict)." |
-
----
-
-## 16. Use Case Specifications — Training
-
-### UC-TRN-01: Re-index Qdrant
-
-| **UC ID:** UC-TRN-01 | **Name:** Re-index Qdrant |
-| **Created By:** Engineering Team | **Last Updated:** 2026-05-29 |
-
-| **Actor:** | Data Owner |
-| **Description:** | Data Owner triggers re-extraction of features for all active segments and upserts them to Qdrant. Deletes archived points. Tracks progress in real-time. Used after adding images, updating labels, or archiving data. |
-| **Trigger:** | Data Owner clicks "Re-index" on the Training Dashboard. |
-| **Preconditions:** | 1. Data Owner authenticated. 2. No training job running. 3. Feature extractors available. |
-| **Postconditions:** | 1. All active segments re-indexed in Qdrant. 2. Archived points deleted. 3. qdrant_index_state updated. 4. model_version incremented (patch). |
-| **Priority:** | High |
-| **Frequency:** | Weekly to monthly |
-| **Special Requirements:** | Only one training job at a time; progress bar with stage/current/total/ETA |
-
-#### Main Flow
-
-| Step | Actor | System Response |
-|------|-------|-----------------|
-| 1 | Data Owner opens Training Dashboard | |
-| 2 | | System displays pre-flight: N new strains since last train, M archived, P feedback accepted, estimated time |
-| 3 | Data Owner clicks "Re-index" | |
-| 4 | Data Owner confirms in modal | |
-| 5 | | System creates training_job (type: reindex, status: running) |
-| 6 | | Celery iterates active segments: extracts 13 named vectors, upserts to Qdrant, updates qdrant_index_state (last_updated, is_active=TRUE) |
-| 7 | | Celery iterates archived segments: deletes Qdrant points, sets qdrant_index_state (is_active=FALSE) |
-| 8 | Data Owner monitors progress | System polls progress: stage, current/total, ETA |
-| 9 | | On completion: updates job status, model_version (patch bump), notifies Data Owner |
-| 10 | Data Owner reviews summary | System shows: N indexed, M deleted, duration |
-
-#### Exceptions
-
-**EX.1: Training Job Already Running**
-
-| Step | Actor | System Response |
-|------|-------|-----------------|
-| EX.1.1 | | System blocks new trigger, shows progress of active job |
-| **Final state:** Data Owner monitors existing job |
-
----
-
-### UC-TRN-02: Fine-tune Model
-
-| **UC ID:** UC-TRN-02 | **Name:** Fine-tune Model |
-| **Created By:** Engineering Team | **Last Updated:** 2026-05-29 |
-
-| **Actor:** | Data Owner |
-| **Description:** | Data Owner triggers deep model fine-tuning on Vast.ai GPU. Prepares training dataset (active segment images, stratified by species), loads base model (EfficientNetB1, ImageNet weights), trains classification head for N species, saves weights, and evaluates on held-out set. Model is staged (not auto-deployed). |
-| **Trigger:** | Data Owner clicks "Fine-tune Model" on Training Dashboard. |
-| **Preconditions:** | 1. Data Owner authenticated. 2. Vast.ai GPU instance available. 3. Sufficient training data (≥ 50 new images recommended). |
-| **Postconditions:** | 1. New model weights saved to `weights/`. 2. Evaluation metrics (F1, confusion matrix) recorded. 3. Model staged for deployment review. |
-| **Priority:** | Medium |
-| **Frequency:** | Monthly to quarterly |
-
-#### Main Flow
-
-| Step | Actor | System Response |
-|------|-------|-----------------|
-| 1 | Data Owner clicks "Fine-tune Model" | |
-| 2 | | System shows pre-flight: training images count, estimated time on Vast.ai |
-| 3 | Data Owner confirms | |
-| 4 | | Celery provisions Vast.ai GPU instance |
-| 5 | | System downloads training dataset to GPU instance |
-| 6 | | System runs fine-tuning: load EfficientNetB1 base → add classification head → train |
-| 7 | | System evaluates on held-out split, records F1 score |
-| 8 | | System saves .pth weights to `weights/`, archives previous version |
-| 9 | | System creates training_job record with evaluation metrics |
-| 10 | Data Owner reviews results | System shows: new F1 vs old, confusion matrix, per-species accuracy |
-| 11 | | System stages model; Data Owner may deploy (UC-TRN-03) or skip |
-
-#### Exceptions
-
-**EX.1: Vast.ai Instance Unavailable**
-
-| Step | Actor | System Response |
-|------|-------|-----------------|
-| EX.1.1 | | System notifies: "No GPU instances available. Try again later or configure different instance type." |
-| **Final state:** Job cancelled; no resources consumed |
-
----
-
-### UC-TRN-03: Deploy Model
-
-| **UC ID:** UC-TRN-03 | **Name:** Deploy Model |
-| **Created By:** Engineering Team | **Last Updated:** 2026-05-29 |
-
-| **Actor:** | Data Owner |
-| **Description:** | Data Owner reviews the evaluation metrics of a staged model and clicks "Deploy" to activate it. System re-indexes all segments with the new model weights. All subsequent queries use the new model. Previous model weights archived for rollback. |
-| **Trigger:** | Data Owner clicks "Deploy vX.Y.Z" after reviewing staged model metrics. |
-| **Preconditions:** | 1. Staged model exists with evaluation metrics. 2. Data Owner has reviewed metrics. |
-| **Postconditions:** | 1. All segments re-indexed with new weights. 2. model_version updated. 3. is_deployed=TRUE on training_job. 4. All future queries use new model. |
-| **Priority:** | High |
-| **Frequency:** | Monthly |
-
-#### Main Flow
-
-| Step | Actor | System Response |
-|------|-------|-----------------|
-| 1 | Data Owner reviews staged model: F1 0.92 vs current 0.89 | |
-| 2 | Data Owner clicks "Deploy vX.Y.Z" | |
-| 3 | Data Owner confirms: "Deploying will re-index all segments. Queries will use the new model." | |
-| 4 | | System runs re-index (same as UC-TRN-01) using new model weights |
-| 5 | | On completion: updates model_version, is_deployed=TRUE |
-| 6 | | System marks previous model as archived (weights kept for rollback) |
-| 7 | | System notifies Data Owner: "Model vX.Y.Z deployed. Previous model vX.Y.W available for rollback." |
-
----
-
-### UC-TRN-04: Rollback Model
-
-| **UC ID:** UC-TRN-04 | **Name:** Rollback Model |
-| **Created By:** Engineering Team | **Last Updated:** 2026-05-29 |
-
-| **Actor:** | Data Owner |
-| **Description:** | Data Owner rolls back to a previous model version. System re-indexes all segments with the archived model weights. Used when a newly deployed model performs worse than expected. |
-| **Trigger:** | Data Owner clicks "Rollback" on Training Dashboard, selects previous version. |
-| **Preconditions:** | 1. Previous model version weights archived in `weights/archive/`. 2. Data Owner authenticated. |
-| **Postconditions:** | 1. All segments re-indexed with previous weights. 2. model_version reverted. 3. Previous "bad" model kept archived. |
-| **Priority:** | Medium |
-| **Frequency:** | Rare |
-
-#### Main Flow
-
-| Step | Actor | System Response |
-|------|-------|-----------------|
-| 1 | Data Owner clicks "Rollback" | |
-| 2 | | System shows dropdown of archived model versions with dates and F1 scores |
-| 3 | Data Owner selects v3.2.0 (F1 0.89), clicks "Rollback to v3.2.0" | |
-| 4 | Data Owner confirms | |
-| 5 | | System re-indexes all segments using v3.2.0 weights |
-| 6 | | System updates model_version to v3.2.0 |
-| 7 | | System logs rollback to audit_log |
-| 8 | | System notifies Data Owner of completion |
-
----
-
-## 17. Use Case Specifications — Administration
-
-### UC-ADM-01: Manage User Roles
-
-| **UC ID:** UC-ADM-01 | **Name:** Manage User Roles |
-| **Created By:** Engineering Team | **Last Updated:** 2026-05-29 |
-
-| **Actor:** | Data Owner |
-| **Description:** | Data Owner views all registered users, promotes Normal Users to Data Owner, and demotes Data Owners to Normal User. Enforces the invariant that at least one Data Owner must exist at all times. All role changes are logged. |
-| **Trigger:** | Data Owner navigates to `/admin/users`. |
-| **Preconditions:** | 1. Data Owner authenticated. |
-| **Postconditions:** | 1. User role updated. 2. Invariant enforced (≥ 1 owner). 3. Audit log entry created. |
-| **Priority:** | High |
-| **Frequency:** | Rare |
-
-#### Main Flow
-
-| Step | Actor | System Response |
-|------|-------|-----------------|
-| 1 | | System displays user table: name, email, role, join date |
-| 2 | Data Owner clicks role badge on a user row | |
-| 3 | Data Owner selects new role from dropdown (user ↔ owner) | |
-| 4 | | System validates invariant: if demoting last owner, rejects |
-| 5 | | System updates role in DB |
-| 6 | | System logs "change_role" to audit_log |
-| 7 | | System refreshes table |
-
-#### Exceptions
-
-**EX.1: Demoting Last Data Owner**
-
-| Step | Actor | System Response |
-|------|-------|-----------------|
-| EX.1.1 | | System displays: "Cannot demote. At least one Data Owner must exist. Promote another user first." |
-| **Final state:** Role unchanged |
-
----
-
-### UC-ADM-02: View Audit Log
-
-| **UC ID:** UC-ADM-02 | **Name:** View Audit Log |
-| **Created By:** Engineering Team | **Last Updated:** 2026-05-29 |
-
-| **Actor:** | Data Owner |
-| **Description:** | Data Owner views the immutable audit trail of all data-modifying operations. Filters by entity type, entity ID, user, action, and date range. |
-| **Trigger:** | Data Owner navigates to `/admin/audit-log`. |
-| **Preconditions:** | 1. Data Owner authenticated. 2. Audit log contains entries. |
-| **Postconditions:** | Data Owner views filtered audit entries. |
-| **Priority:** | Medium |
-| **Frequency:** | On demand |
-
-#### Main Flow
-
-| Step | Actor | System Response |
-|------|-------|-----------------|
-| 1 | | System displays paginated audit log table: timestamp, user, action, entity type, entity ID |
-| 2 | Data Owner applies filters: entity type (species/strain/image/feedback/user), user, date range | |
-| 3 | | System queries with filters, returns matching entries |
-| 4 | Data Owner clicks an entry to expand | System shows changes JSONB with old → new values |
-
----
-
-## 18. Sequence Diagrams
-
-### 18.1 UC-RET-01: Retrieve Species
-
-![Diagram:sequence](diagrams/sd-UC-RET-01.svg)
-
-*Covers: upload → segmentation → bbox editing → feature extraction → Qdrant KNN → aggregation → ranked results display. Participants: Researcher, React Frontend, FastAPI Backend, Celery Worker, Segmentation, Feature Extractor, Qdrant DB, PostgreSQL.*
-
-### 18.2 UC-FB-03: Review and Process Feedback
-
-![Diagram:sequence](diagrams/sd-UC-FB-01.svg)
-
-*Covers: feedback submission → Data Owner inbox review → accept (database update + re-index queue → Celery re-index) + submitter notification. Participants: Researcher, Data Owner, Frontend, Backend, PostgreSQL, Qdrant, Celery.*
-
-### 18.3 UC-TRN-01/02/03: Training Lifecycle
-
-![Diagram:sequence](diagrams/sd-UC-TRN-01.svg)
-
-*Covers: training trigger → pre-flight check → re-index progress loop → optional Vast.ai GPU fine-tune → evaluation → staged deployment → rollback. Participants: Data Owner, Frontend, Backend, Celery Worker, Vast.ai GPU, File Storage, Qdrant, PostgreSQL.*
-
----
-
-## 19. Data Requirements
-
-### 19.1 Entity Relationship Diagram
-
-![Diagram:class](diagrams/class-diagram.svg)
-
-### 19.2 Database Schema Summary
-
-| Entity | Key Fields | Notes |
-|--------|-----------|-------|
-| users | id, email (unique), password_hash, name, role (user/owner), is_active | First user → owner |
-| refresh_tokens | id, user_id (FK), token_hash, expires_at | Multiple per user |
-| species | id, name (unique), description, is_archived, archived_at | Case-insensitive name |
-| strains | id, species_id (FK), name, source (enum), is_archived | UNIQUE(name, species_id) |
-| images | id, strain_id (FK), media (enum), angle, file_path, is_archived | Links to file storage |
-| segments | id, image_id (FK), segment_index, crop_path, bbox_x/y/w/h, segmentation_method, qdrant_point_id | UNIQUE(image_id, segment_index) |
-| retrieval_jobs | id, user_id (FK), job_type, status, config (JSONB) | Tracks async queries |
-| retrieval_results | id, job_id (FK), strain_name, rank, species_name, score | Per-species ranking |
-| retrieval_neighbors | id, result_id (FK), neighbor_strain, neighbor_species, similarity, media | KNN detail per rank |
-| feedback | id, submitter_id (FK), reviewer_id (FK), source, predicted, suggested, description, status | pending/accepted/rejected/deferred |
-| training_jobs | id, triggered_by (FK), job_type, status, progress (JSONB), model_version, is_deployed | reindex/finetune/full_retrain |
-| audit_log | id (bigserial), user_id (FK), action, entity_type, entity_id, changes (JSONB), ip_address | Immutable append-only |
-| qdrant_index_state | id, segment_id (FK), qdrant_point_id, collection_name, indexed_at, is_active | Tracks Qdrant sync state |
-
-### 19.3 Data Retention
-
-| Category | Period | Rationale |
-|---------|--------|-----------|
-| User accounts | Until deletion + 30d | Data minimization |
-| Species/Strains/Images | Until permanent delete | Scientific reference |
-| Archived data (trash) | Until manual purge | Allow undo |
-| Retrieval jobs/results | 90 days | Storage optimization |
-| Feedback | Indefinite | Quality tracking |
-| Training jobs | Indefinite | Reproducibility |
-| Audit logs | Indefinite | Compliance |
-
-### 19.4 Qdrant Schema
-
-**Collection:** `myco_fungi_features_full_finetuned`
-**Distance:** Cosine
-**13 Named Vectors:**
-
-| Vector Name | Dim | Extractor |
-|------------|-----|-----------|
-| EfficientNetB1_finetuned | 1280 | Default query vector |
-| ResNet50_finetuned | 2048 | Fine-tuned ResNet50 |
-| MobileNetV2_finetuned | 1280 | Fine-tuned MobileNetV2 |
-| ViT_finetuned | 768 | Vision Transformer |
-| efficientnetb1_triplet | 1280 | Triplet-loss variant |
-| resnet50 | 2048 | ResNet50 (ImageNet) |
-| mobilenetv2 | 1280 | MobileNetV2 (ImageNet) |
-| efficientnetb1 | 1280 | EfficientNetB1 (ImageNet) |
-| colorhistogramhsconcatresnet50 | 2112 | Combined HS + ResNet50 |
-| colorhistogramhs | 64 | HSV histogram (H+S) |
-| colorhistogram | 96 | RGB histogram |
-| hog | dynamic | HOG descriptors |
-| gabor | 32 | Gabor filter banks |
-
-**Payload:** `{ species, strain, parent_item_id, environment, source, segment_index, img_path }`
-
----
-
-## 20. External Interface Requirements
-
-### 20.1 REST API
-
-All endpoints prefixed with `/api/v1/`. Response format: JSON. Error format: RFC 7807.
-
-#### Authentication
-
-| Method | Path | Auth | Description |
-|--------|------|------|-------------|
-| POST | `/auth/register` | None | Create account (first user → owner) |
-| POST | `/auth/login` | None | Login → access + refresh tokens |
-| POST | `/auth/refresh` | Refresh | Get new access token |
-| POST | `/auth/logout` | Access | Revoke refresh token |
-| GET | `/auth/me` | Access | Current user profile |
-
-#### Images
-
-| Method | Path | Auth | Description |
-|--------|------|------|-------------|
-| POST | `/images/upload` | User | Single image (multipart) |
-| POST | `/images/batch` | User | Batch folder upload |
-| GET | `/images/{id}` | User | Image detail + segments |
-| PATCH | `/images/{id}/segments` | User | Update bboxes |
-| DELETE | `/images/{id}` | Owner | Archive image |
-
-#### Retrieval
-
-| Method | Path | Auth | Description |
-|--------|------|------|-------------|
-| POST | `/retrieval/query` | User | Start async retrieval job |
-| GET | `/retrieval/jobs/{id}` | User | Job status |
-| GET | `/retrieval/jobs/{id}/results` | User | Ranked results |
-| POST | `/retrieval/query-sync` | User | Synchronous query |
-
-#### Species & Strains
-
-| Method | Path | Auth | Description |
-|--------|------|------|-------------|
-| GET/POST | `/species` | User/Owner | List / Create species |
-| GET/PATCH/DELETE | `/species/{id}` | User/Owner | CRUD species |
-| GET/POST | `/strains` | User/Owner | List / Create strains |
-| GET/DELETE | `/strains/{id}` | User/Owner | Strain detail / Archive |
-
-#### Feedback
-
-| Method | Path | Auth | Description |
-|--------|------|------|-------------|
-| POST | `/feedback` | User | Submit feedback |
-| GET | `/feedback` | User | My submitted feedback |
-| GET | `/feedback/inbox` | Owner | Pending review inbox |
-| PATCH | `/feedback/{id}` | Owner | Accept/reject/defer |
-| POST | `/feedback/batch` | Owner | Bulk action |
-
-#### Training
-
-| Method | Path | Auth | Description |
-|--------|------|------|-------------|
-| GET | `/training/status` | User | Current model info |
-| GET | `/training/jobs` | Owner | Training history |
-| POST | `/training/trigger` | Owner | Start retraining |
-| GET | `/training/jobs/{id}` | Owner | Job progress |
-| POST | `/training/jobs/{id}/cancel` | Owner | Cancel job |
-| POST | `/training/jobs/{id}/deploy` | Owner | Deploy model |
-| POST | `/training/rollback` | Owner | Rollback model |
-
-#### Dashboard & Admin
-
-| Method | Path | Auth | Description |
-|--------|------|------|-------------|
-| GET | `/dashboard/stats` | User | Overview counts |
-| GET | `/dashboard/charts/*` | User | Species/media/timeline data |
-| GET | `/dashboard/qdrant-status` | User | Learned vs unlearned |
-| GET | `/admin/users` | Owner | User list |
-| PATCH | `/admin/users/{id}/role` | Owner | Change role |
-| GET | `/admin/audit-log` | Owner | Audit trail |
-
-### 20.2 Pagination, Filtering, Sorting
-
-- Pagination: offset-based (`?offset=0&limit=50`). Response: `{ items, total, offset, limit }`.
-- Filtering: `?species_id=xxx&media=MEA&is_archived=false&search=DTO&source=curated_primary`.
-- Sorting: `?sort_by=name&sort_order=asc`.
-
-### 20.3 User Interfaces
-
-| Interface | Platform | Description |
-|-----------|----------|-------------|
-| Web SPA | Desktop (1280px+) | Sidebar + content layout, shadcn/ui + Tailwind v4 |
-| Upload Page | Desktop | Dropzone, single/batch tabs, metadata form, max colonies slider |
-| Segmentation Editor | Desktop | SVG canvas bbox overlay, drag/resize/add/delete |
-| Results Page | Desktop | Ranked table, confidence bars, expandable neighbors, lightbox |
-| Database Browser | Desktop | Filterable table, Recharts charts, pagination |
-| Feedback Inbox | Desktop | Sortable list, bulk checkboxes, review modals |
-| Training Dashboard | Desktop | Progress bars, stage indicators, deploy/rollback controls |
-
----
-
-## 21. Non-Functional Requirements
-
-### 21.1 Performance
-
-| Metric | Target (P95) | Context |
-|--------|-------------|---------|
-| Single-image retrieval | ≤ 5 seconds | Upload → results displayed |
-| Single-image segmentation | ≤ 3 seconds | KMeans on 256x256 image |
-| Feature extraction per segment | ≤ 500ms | EfficientNetB1 inference |
-| Qdrant KNN query | ≤ 200ms | k=5, 1280-dim, cosine |
-| Batch processing (100 images) | ≤ 5 minutes | Parallel Celery tasks |
-| API response (CRUD) | ≤ 200ms | Auth, species, feedback endpoints |
-| Page load (SPA initial) | ≤ 2 seconds | Code-split routes |
-| SPA navigation | ≤ 500ms | Subsequent route changes |
-| Concurrent users | 50 simultaneous | MVP target |
-
-### 21.2 Security
-
-| Control | Implementation |
-|---------|---------------|
-| Authentication | JWT (HS256): access 1h, refresh 30d. python-jose + passlib (bcrypt 12 rounds) |
-| Authorization | RBAC: `user` / `owner`. Backend enforcement on every protected endpoint |
-| Token storage | Access: JS memory (not localStorage). Refresh: httpOnly/Secure/SameSite=Strict cookie |
-| Transport | TLS 1.3 (external HTTPS). Docker internal network for inter-service |
-| Password hashing | bcrypt, 12 rounds. Never logged |
-| Rate limiting | 5 login/IP/min; 100 req/IP/min general (slowapi + Redis) |
-| SQL injection | SQLAlchemy parameterized queries exclusively |
-| File upload | MIME validation; 50MB size limit |
-| CORS | Restricted to known frontend origins |
-| CSRF | SameSite=Strict cookies; Authorization header-based token |
-| Secrets | .env (dev) / Docker secrets (prod); no hardcoded values |
-| Network | PostgreSQL, Qdrant, Redis not exposed externally (Docker internal) |
-
-### 21.3 Reliability
-
-| Metric | Target |
-|--------|--------|
-| API uptime | 99.5% (≤ 3.65h downtime/month, MVP) |
-| Data durability | PostgreSQL WAL; Qdrant recoverable via re-index |
-| RPO | ≤ 1 hour (database backups); re-indexable (Qdrant) |
-| RTO | ≤ 1 hour (API); ≤ 24 hours (full Qdrant re-index) |
-| Graceful degradation | Classification works if training/feedback unavailable |
-| Idempotency | Duplicate queries return original results |
-| Backup | pg_dump daily; rclone sync to Google Drive; Qdrant snapshot weekly |
-
-### 21.4 Usability
-
-- Desktop-first (1280px+), responsive sidebar to 1024px
-- shadcn/ui component library, Tailwind v4, consistent design language
-- Inline form validation (React Hook Form + Zod)
-- Undo: segment removal (30s window), batch image removal, bbox edits
-- Skeleton loading states for data fetches
-- Toast notifications (Sonner) for async operation results
-- Accessibility: WCAG 2.1 AA target
-- Keyboard-navigable bounding-box editing
-- CSV export for results and database views
-
-### 21.5 Maintainability
-
-- Monorepo: three submodules, independent versioning, shared contracts via docs/
-- Domain-based backend package: `api/`, `core/`, `models/`, `schemas/`, `services/`, `repos/`, `tasks/`
-- Alembic migrations auto-generated from SQLAlchemy model diffs
-- Structured JSON logging with request IDs
-- API versioning: `/api/v1/` prefix
-- CI (GitHub Actions): lint (ruff/ESLint), typecheck (mypy/TypeScript), test (pytest), build
-- CD: manual deploy via Docker Compose pull + up on VM
-
----
-
-## 22. Technical Stack
-
-| Layer | Technology | Notes |
-|-------|-----------|-------|
-| Backend | FastAPI | Async, Pydantic, OpenAPI docs |
-| Database | PostgreSQL 16 | SQLAlchemy 2.0 async, asyncpg, Alembic |
-| Vector DB | Qdrant | Single-node Docker, 13 named vectors, cosine |
-| File Storage | Local filesystem | S3 migration planned |
-| Image Processing | OpenCV + NumPy | KMeans/Contour segmentation |
-| Frontend | React 19 + Vite | shadcn/ui + Tailwind v4 |
-| Routing | React Router v7 | `createBrowserRouter` |
-| Data Fetching | TanStack Query | Caching, retry, polling |
-| Forms | React Hook Form + Zod | Type-safe validation |
-| Charts | Recharts + D3.js | Pie/bar/line + force-directed graph |
-| Upload | react-dropzone | Drag-and-drop, preview |
-| BBox | Custom SVG overlay | Lightweight, draggable |
-| Task Queue | Celery + Redis | Async segmentation, extraction, training |
-| Auth | JWT + python-jose + passlib | HS256, bcrypt 12 rounds |
-| Deployment | Docker Compose | Single VM, all services |
-| CI/CD | GitHub Actions | Lint → typecheck → test → build |
-| Training GPU | Vast.ai | On-demand, GPU rentals |
-| Python | 3.13 | via mise + uv |
-| Node | 25 | via mise |
-| Package Managers | uv (Python), pnpm (Node) | Monorepo tooling |
-| Cloud Sync | rclone | Google Drive ↔ local filesystem |
-
----
-
-## 23. Appendices
-
-### Appendix A: End-to-End Data Flow
-
-![Diagram:flow](diagrams/flow-diagram.svg)
-
-### Appendix B: Assumptions Log
-
-| ID | Assumption | Status | Impact |
-|----|-----------|--------|--------|
-| AS-01 | Qdrant collection pre-populated | Accepted | No retrieval without it |
-| AS-02 | Model weights available at `weights/` | Accepted | Feature extraction fails |
-| AS-03 | Dataset follows canonical hierarchy | Accepted | Upload pipeline fails |
-| AS-04 | Vast.ai GPU instances available | Accepted | Fine-tune unavailable |
-| AS-05 | First user = Data Owner (auto) | Accepted | No admin exists |
-| AS-06 | Species names unique (case-insensitive) | Accepted | Retrieval ambiguity |
-| AS-07 | Docker services started before backend | Accepted | Backend startup fails |
-| AS-08 | Users have modern browsers | Accepted | Degraded UI |
-| AS-09 | Image quality sufficient (clear plates, 256x256+) | At risk | Poor segmentation |
-| AS-10 | ≥ 4-7 strains/species for reliable KNN | At risk | Low accuracy |
-
-### Appendix C: Open Issues
-
-| ID | Description | Owner | Priority | Status |
-|----|-------------|-------|----------|--------|
-| OI-01 | Extract feature extraction into shared `mycoai_ml` library | Architecture | Medium | Open |
-| OI-02 | Migration from local FS to S3-compatible storage | Infrastructure | Medium | Open |
-| OI-03 | Auto-scheduled retraining (weekly / threshold-based) | Product | Medium | Open |
-| OI-04 | Passkey/WebAuthn authentication | Security | Low | Open |
-| OI-05 | Internationalization (i18n) | Product | Low | Open |
-| OI-06 | "Contributor" role between Normal User and Data Owner | Product | Low | Open |
-| OI-07 | Anonymous/public species list access | Product | Low | Open |
-| OI-08 | Species rename: re-index or full fine-tune? | Architecture | High | Resolved: re-index sufficient |
-| OI-09 | Multi-currency / billing support | Product | N/A | Closed (scientific tool) |
-
-### Appendix D: Glossary of Growth Media
-
-| Code | Full Name |
+| Term | Definition |
 |------|-----------|
-| MEA | Malt Extract Agar |
-| CYA | Czapek Yeast Extract Agar |
-| YES | Yeast Extract Sucrose Agar |
-| DG18 | Dichloran Glycerol Agar |
-| OA | Oatmeal Agar |
-| CREA | Creatine Sucrose Agar |
-| PDA | Potato Dextrose Agar |
-| CMA | Corn Meal Agar |
-| SAB | Sabouraud Dextrose Agar |
-| M40Y | Malt Extract 40% Yeast Extract Agar |
+| Bounding Box (bbox) | Rectangular region defined by (x, y, width, height) enclosing a detected fungal colony |
+| Celery | Distributed task queue for asynchronous processing |
+| Cosine Similarity | Distance metric used by Qdrant for vector comparison (range: -1 to 1) |
+| Embedding / Feature Vector | Fixed-dimensional numerical representation of an image extracted by a CNN |
+| Environment Strategy | Filter controlling which growth media are included in Qdrant search (E1-E4) |
+| FastAPI | Python web framework for building REST APIs |
+| k-NN | k-Nearest Neighbors: retrieval of k most similar vectors from Qdrant |
+| Media / Growth Medium | Substrate on which fungi are cultured (MEA, CYA, YES, etc.) |
+| Qdrant | Vector database for similarity search |
+| Re-index | Re-extract features and update Qdrant points (no neural network weight change) |
+| Segment | Cropped region of a plate image containing a single fungal colony |
+| Species Weight | Per-species extractor preference used in manual_weighted aggregation |
+| Strain | Specific fungal isolate identified by a strain code |
+
+### 6.2 References
+- Feature Specs: `docs/feature_spec/01-image-input.md` through `08-roles-and-permissions.md`
+- Technical Specs: `docs/technical_spec/00-use-case-design.md` through `12-deployment.md`
+- Backend API: `repos/mycoai_retrieval_backend/src/mycoai_retrieval_backend/api/`
+- Database Schema: `repos/mycoai_retrieval_backend/migrations/versions/0001_initial_schema.py`
+- Qdrant Integration: `repos/mycoai_retrieval_backend/src/mycoai_retrieval_backend/qdrant/`
+- Project Analysis: `output/analysis.md`
+
+### 6.3 Implementation Gap Summary
+
+| Area | Gap | Severity |
+|------|-----|----------|
+| Auth Storage | `MemoryStore` used instead of PostgreSQL; migration exists but not wired | High |
+| Retrieval API | Returns hardcoded mock results; real Qdrant integration not wired | High |
+| CRUD Operations | All species/strain/image CRUD backed by in-memory stores | High |
+| Feedback Pipeline | Stub implementations; no notification system | Medium |
+| Training Pipeline | Celery tasks are stubs; no real training execution | Medium |
+| Frontend Pages | Most pages are `PageShell` placeholders; only Upload is functional | Medium |
+| Celery Tasks | All task files exist but are empty/minimal | Medium |
+| Deployment | No `docker-compose.dev.yml`; deployment plan not executed | Low |
+| ORM Models | `@dataclass` used instead of SQLAlchemy ORM mapped classes | Low |
+| Real-time Updates | Job status via polling only; no WebSocket push | Low |
+
+### 6.4 Sequence Diagrams
+
+| UC ID | Diagram |
+|-------|---------|
+| UC-AUTH-01 | ![SD: Register](diagrams/sd-UC-AUTH-01.svg) |
+| UC-AUTH-02 | ![SD: Login](diagrams/sd-UC-AUTH-02.svg) |
+| UC-IMAGE-01 | ![SD: Upload Image](diagrams/sd-UC-IMAGE-01.svg) |
+| UC-IMAGE-02 | ![SD: Edit Segmentation](diagrams/sd-UC-IMAGE-02.svg) |
+| UC-RETRIEVAL-01 | ![SD: Query Species](diagrams/sd-UC-RETRIEVAL-01.svg) |
+| UC-DATA-01 | ![SD: Browse Database](diagrams/sd-UC-DATA-01.svg) |
+| UC-FEEDBACK-01 | ![SD: Submit Feedback](diagrams/sd-UC-FEEDBACK-01.svg) |
+| UC-FEEDBACK-02 | ![SD: Review Feedback](diagrams/sd-UC-FEEDBACK-02.svg) |
+| UC-DATA-02 | ![SD: Manage Species](diagrams/sd-UC-DATA-02.svg) |
+| UC-TRAINING-01 | ![SD: Trigger Training](diagrams/sd-UC-TRAINING-01.svg) |
+
+---
+
+*End of SRS Document*

@@ -1,9 +1,10 @@
 [env]
 _.python.venv = { path = ".venv", create = true }
 OPENREPORT_OUTPUT_DIR = "output"
-OPENREPORT_TEMPLATE_DIR = "templates"
+OPENREPORT_TEMPLATE_DIR = "report/templates"
 OPENREPORT_DEFAULT_REPORT_TYPE = "a4"
 OPENREPORT_DEFAULT_AUTHOR = "Engineering Team"
+OPENREPORT_TMP_DIR = "tmp"
 
 [tools]
 java = "openjdk"
@@ -15,6 +16,14 @@ experimental = true
 [tasks.generate]
 description = "Generate HTML report from markdown content"
 run = "python scripts/generate_report.py --title \"${OPENREPORT_TITLE:-Technical Report}\" --type \"${OPENREPORT_REPORT_TYPE:-a4}\" --author \"${OPENREPORT_AUTHOR:-Engineering Team}\" --toc"
+
+[tasks.srs]
+description = "Generate SRS HTML report from output/srs/srs-content.md"
+run = "python scripts/generate_report.py --content output/srs/srs-content.md --title \"${OPENREPORT_TITLE:-Software Requirements Specification}\" --type \"${OPENREPORT_REPORT_TYPE:-a4}\" --author \"${OPENREPORT_AUTHOR:-Engineering Team}\" --toc"
+
+[tasks.clone-mycoai]
+description = "Clone mycoai_projects main with submodules into tmp"
+run = "git clone --branch main --recurse-submodules git@github.com:datamonsterr/mycoai_projects.git tmp/mycoai_projects"
 
 [tasks.test]
 description = "Run report validation checks"

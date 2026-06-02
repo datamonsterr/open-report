@@ -1,36 +1,53 @@
 @startuml
 left to right direction
-skinparam packageStyle rectangle
 
-actor "Normal User\n(Researcher)" as User
-actor "Data Owner" as Owner
+actor "Researcher" as researcher
+actor "Data Owner" as owner
 
-rectangle "MycoAI Retrieval System" {
-  (Authenticate\nRegister / Login) as Auth
+rectangle "MycoAI Platform" {
+  usecase "UC-AUTH-01\nRegister Account" as UC_AUTH_01
+  usecase "UC-AUTH-02\nLogin" as UC_AUTH_02
 
-  (Upload & Classify\nRetrieve Species) as Classify
-  (Index Reference\nData) as IndexData
-  (Manage Database\nSpecies, Strains, CRUD) as ManageDB
-  (Submit & Review\nFeedback) as Feedback
-  (Manage Training\nTrigger, Monitor, Deploy) as Training
-  (Administer System\nUsers, Roles, Audit) as Admin
+  usecase "UC-IMAGE-01\nUpload Image for Identification" as UC_IMAGE_01
+  usecase "UC-IMAGE-02\nEdit Segmentation" as UC_IMAGE_02
+  usecase "UC-RETRIEVAL-01\nQuery Species Identity" as UC_RETRIEVAL_01
+  usecase "UC-DATA-01\nBrowse Database" as UC_DATA_01
+  usecase "UC-FEEDBACK-01\nSubmit Feedback" as UC_FDBK_01
+
+  usecase "UC-FEEDBACK-02\nReview Feedback" as UC_FDBK_02
+  usecase "UC-DATA-02\nManage Species Data" as UC_DATA_02
+  usecase "UC-TRAINING-01\nTrigger Model Training" as UC_TRAIN_01
 }
 
-User --> Auth
-User --> Classify
-User --> Feedback
-User --> ManageDB
+' Researcher associations
+researcher --> UC_AUTH_01
+researcher --> UC_AUTH_02
+researcher --> UC_IMAGE_01
+researcher --> UC_RETRIEVAL_01
+researcher --> UC_DATA_01
+researcher --> UC_FEEDBACK_01
 
-Owner --> Auth
-Owner --> Classify
-Owner --> Feedback
-Owner --> ManageDB
-Owner --> IndexData
-Owner --> Training
-Owner --> Admin
+' Data Owner associations
+owner --> UC_AUTH_01
+owner --> UC_AUTH_02
+owner --> UC_IMAGE_01
+owner --> UC_RETRIEVAL_01
+owner --> UC_DATA_01
+owner --> UC_FEEDBACK_01
+owner --> UC_FDBK_02
+owner --> UC_DATA_02
+owner --> UC_TRAIN_01
 
-IndexData ..> Classify : <<extend>>
-Feedback ..> ManageDB : <<extends>>
-IndexData ..> Training : <<trigger>>
+' Include: all protected UCs include Login
+UC_IMAGE_01 ..> UC_AUTH_02 : <<include>>
+UC_RETRIEVAL_01 ..> UC_AUTH_02 : <<include>>
+UC_DATA_01 ..> UC_AUTH_02 : <<include>>
+UC_FEEDBACK_01 ..> UC_AUTH_02 : <<include>>
+UC_FDBK_02 ..> UC_AUTH_02 : <<include>>
+UC_DATA_02 ..> UC_AUTH_02 : <<include>>
+UC_TRAIN_01 ..> UC_AUTH_02 : <<include>>
+
+' Extend: Edit Segmentation extends Upload Image (optional)
+UC_IMAGE_02 ..> UC_IMAGE_01 : <<extend>>
 
 @enduml
