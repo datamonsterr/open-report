@@ -36,31 +36,14 @@
   },
   "skills": {
     "paths": [
-      ".opencode/skills"
+      ".opencode/skills",
+      "./skills"
     ]
   },
   "instructions": [
-    "rules/*.md"
+    "rules/*.md",
+    "docs/feature_spec/00-domain-model.md",
+    "docs/living_spec/"
   ],
-  "permission": {
-    "read": "allow",
-    "glob": "allow",
-    "grep": "allow",
-    "task": "allow",
-    "question": "allow",
-    "webfetch": "allow",
-    "bash": {
-      "*": "ask",
-      "git clone *": "allow",
-      "git -C *": "allow",
-      "python scripts/*": "allow",
-      "python -m pytest*": "allow",
-      "mise run *": "allow"
-    },
-    "edit": "ask",
-    "external_directory": {
-      "*": "ask",
-      "/home/dat/dev/open-report/tmp/**": "allow"
-    }
-  }
+  "permission": "allow" 
 }

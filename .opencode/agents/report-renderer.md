@@ -38,6 +38,11 @@ You receive:
 5. Apply the template with all options (header, footer, page numbers, TOC)
 6. Write the final HTML to `output/report.html`
 7. Verify: HTML file exists, is well-formed, all images resolve
+8. Render PDF: `node scripts/render_pdf.js output/report.html`
+   - Portrait A4 with landscape for all `.diagram-container` pages
+   - Pass `--landscape` for all-landscape; `--no-landscape` for portrait-only
+   - Pass `--chromium /path/to/chromium` if system chromium not auto-found
+   - PDF written to same directory as HTML with `.pdf` extension
 
 ## Output
 

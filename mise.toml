@@ -7,11 +7,14 @@ OPENREPORT_DEFAULT_AUTHOR = "Engineering Team"
 OPENREPORT_TMP_DIR = "tmp"
 
 [tools]
-java = "openjdk"
+node = "22"
 python = "3.12"
+java = "openjdk"
 
 [settings]
 experimental = true
+activate_aggressive = true
+trusted_config_paths = ["/home/dat/dev/open-report"]
 
 [tasks.generate]
 description = "Generate HTML report from markdown content"
