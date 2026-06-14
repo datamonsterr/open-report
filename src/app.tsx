@@ -1,5 +1,6 @@
 import { createSignal, type Component } from "solid-js";
 import { AppProvider, useApp } from "~/context/app";
+import { BusinessProvider } from "~/context/business";
 import { TopToolbar } from "~/components/TopToolbar";
 import { NavSidebar } from "~/components/NavSidebar";
 import { ChatPanel } from "~/components/ChatPanel";
@@ -57,7 +58,9 @@ const AppLayout: Component = () => {
 export const App: Component = () => {
   return (
     <AppProvider>
-      <AppLayout />
+      <BusinessProvider>
+        <AppLayout />
+      </BusinessProvider>
     </AppProvider>
   );
 };

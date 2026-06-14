@@ -13,10 +13,11 @@ export default defineConfig({
   server: {
     host: "0.0.0.0",
     port: 5173,
+    allowedHosts: ["datamonster"],
     proxy: {
       "/api": "http://localhost:4091",
       "/ws": {
-        target: "ws://localhost:4096",
+        target: "ws://localhost:4091",
         ws: true,
       },
     },

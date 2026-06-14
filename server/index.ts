@@ -419,6 +419,17 @@ async function handleRequest(req: Request): Promise<Response> {
 const server = Bun.serve({
   port: PORT,
   fetch: handleRequest,
+  websocket: {
+    open(ws) {
+      console.log("WebSocket connected");
+    },
+    message(ws, message) {
+      console.log("Received:", message);
+    },
+    close(ws) {
+      console.log("WebSocket closed");
+    },
+  },
 });
 
 console.log(`[open-report] Backend server running on http://localhost:${PORT}`);

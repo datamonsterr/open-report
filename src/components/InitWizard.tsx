@@ -1,4 +1,4 @@
-import { createSignal, type Component } from "solid-js";
+import { createSignal, Show, type Component } from "solid-js";
 import { api } from "~/utils/api";
 
 interface WizardStep {
@@ -97,7 +97,7 @@ export const InitWizard: Component<{ onComplete: (project: string, report: strin
           </div>
         ))}
       </div>
-      <Show when={step() < wizardSteps.length}>
+       <Show when={step() < wizardSteps.length}>
         <div class="border-t border-border p-3 bg-muted/20">
           <div class="flex gap-2 items-end">
             <input

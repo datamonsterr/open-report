@@ -18,7 +18,7 @@ export const ChatPanel: Component = () => {
   const sendMessage = () => {
     const text = input().trim();
     if (!text) return;
-    const userMsg: Message = { id: crypto.randomUUID(), role: "user", content: text };
+    const userMsg: Message = { id: Math.random().toString(36).substring(7), role: "user", content: text };
     setMessages((prev) => [...prev, userMsg]);
     setInput("");
     setStreaming(true);
@@ -26,7 +26,7 @@ export const ChatPanel: Component = () => {
     // Simulate streaming response (placeholder until opencode WebSocket integration)
     setTimeout(() => {
       const aiMsg: Message = {
-        id: crypto.randomUUID(),
+        id: Math.random().toString(36).substring(7),
         role: "assistant",
         content: `Received: "${text}". OpenCode session integration coming soon.`,
       };
